@@ -1,9 +1,8 @@
-# <h1 align="center">
-
+<p align="center">
   <img src="./assets/icon-clash-master.png" width="100" alt="Clash Master Logo" style="margin-bottom: 16px;">
   <br>
-  Clash Master
-</h1>
+  <b style="font-size: 32px;">Clash Master</b>
+</p>
 
 <p align="center">
   <b>A more beautiful and modern web application that lets you visualize and manage your Clash network traffic</b><br>
