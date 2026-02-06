@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { MapPin } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,9 @@ function getContinentColor(continent: string): string {
 }
 
 export function CountryTopList({ data, limit = 7, onViewAll }: CountryTopListProps) {
+  const t = useTranslations("topCountries");
+  const countriesT = useTranslations("countries");
+
   const { countries, totalTraffic } = useMemo(() => {
     if (!data) return { countries: [], totalTraffic: 0 };
     const list = data
@@ -53,9 +57,9 @@ export function CountryTopList({ data, limit = 7, onViewAll }: CountryTopListPro
 
   if (countries.length === 0) {
     return (
-      <OverviewCard title="Top 国家/地区" icon={<MapPin className="w-4 h-4" />}>
+      <OverviewCard title={t("title")} icon={<MapPin className="w-4 h-4" />}>
         <div className="py-8 text-center text-sm text-muted-foreground">
-          暂无数据
+          {countriesT("noData")}
         </div>
       </OverviewCard>
     );
@@ -63,12 +67,12 @@ export function CountryTopList({ data, limit = 7, onViewAll }: CountryTopListPro
 
   return (
     <OverviewCard 
-      title="Top 国家/地区" 
+      title={t("title")} 
       icon={<MapPin className="w-4 h-4" />}
       footer={
         onViewAll && (
           <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
-            查看全部
+            {t("viewAll")}
           </Button>
         )
       }

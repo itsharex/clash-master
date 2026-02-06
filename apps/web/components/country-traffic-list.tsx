@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { MapPin, ArrowDown, ArrowUp } from "lucide-react";
+import { Link2, ArrowDown, ArrowUp } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
 import type { CountryStats } from "@clashstats/shared";
 
@@ -113,7 +113,7 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
 
               {/* Connections */}
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="w-3 h-3" />
+                <Link2 className="w-3 h-3" />
                 <span>{country.totalConnections.toLocaleString()}</span>
               </div>
             </div>

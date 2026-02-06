@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Network, ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/lib/utils";
 import type { RuleStats } from "@clashstats/shared";
@@ -60,6 +61,8 @@ function formatProxyName(proxy: string): string {
 }
 
 export function RuleChainChart({ data }: RuleChainChartProps) {
+  const t = useTranslations("rules");
+
   const rules = useMemo(() => {
     if (!data) return [];
     return data.map((rule, index) => ({
@@ -81,10 +84,10 @@ export function RuleChainChart({ data }: RuleChainChartProps) {
       <CardHeader className="pb-3">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Network className="h-5 w-5 text-primary" />
-          Rule Chain Distribution
+          {t("distribution")}
         </CardTitle>
         <p className="text-sm text-muted-foreground mt-1">
-          Traffic distribution by matching rules and their final proxy nodes
+          {t("description")}
         </p>
       </CardHeader>
       <CardContent>
@@ -98,34 +101,43 @@ export function RuleChainChart({ data }: RuleChainChartProps) {
                 className="p-3 rounded-lg border border-border/50 hover:bg-secondary/20 transition-colors"
               >
                 {/* Top Row: Chain Flow + Traffic */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   {/* Rule Icon */}
                   <div
-                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${rule.color}15` }}
                   >
-                    <span className="text-base">{rule.emoji}</span>
+                    <span className="text-sm sm:text-base">{rule.emoji}</span>
                   </div>
 
-                  {/* Rule Name */}
-                  <div className="min-w-0 flex-1">
+                  {/* Rule Name + Proxy (stacked on mobile) */}
+                  <div className="flex-1 min-w-0 hidden sm:flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate" title={rule.formattedRule}>
+                        {rule.formattedRule}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm text-muted-foreground truncate" title={rule.formattedProxy}>
+                        {rule.formattedProxy}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Mobile: stacked names */}
+                  <div className="flex-1 min-w-0 sm:hidden">
                     <p className="font-medium text-sm truncate" title={rule.formattedRule}>
                       {rule.formattedRule}
                     </p>
-                  </div>
-
-                  {/* Arrow */}
-                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
-
-                  {/* Proxy */}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm text-muted-foreground truncate" title={rule.formattedProxy}>
+                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1" title={rule.formattedProxy}>
+                      <ArrowRight className="w-3 h-3 shrink-0" />
                       {rule.formattedProxy}
                     </p>
                   </div>
 
                   {/* Traffic Stats */}
-                  <div className="text-right shrink-0 min-w-[100px]">
+                  <div className="text-right shrink-0 min-w-[70px] sm:min-w-[100px]">
                     <p className="font-semibold text-sm tabular-nums">
                       {formatBytes(rule.total)}
                     </p>
@@ -136,7 +148,7 @@ export function RuleChainChart({ data }: RuleChainChartProps) {
                 </div>
 
                 {/* Second Row: Progress Bar + Detailed Stats */}
-                <div className="mt-3 flex items-center gap-4">
+                <div className="mt-2 sm:mt-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                   {/* Progress Bar */}
                   <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                     <div
@@ -146,8 +158,8 @@ export function RuleChainChart({ data }: RuleChainChartProps) {
                   </div>
 
                   {/* Detailed Stats */}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
-                    <span className="tabular-nums">{rule.totalConnections.toLocaleString()} conn</span>
+                  <div className="flex items-center gap-3 sm:gap-4 text-xs text-muted-foreground shrink-0">
+                    <span className="tabular-nums">{rule.totalConnections.toLocaleString()} {t("connections")}</span>
                     <span className="tabular-nums text-blue-500">↓ {formatBytes(rule.totalDownload)}</span>
                     <span className="tabular-nums text-purple-500">↑ {formatBytes(rule.totalUpload)}</span>
                   </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Server, Users, ArrowUpDown } from "lucide-react";
+import { Server, Link2, ArrowUpDown } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,8 @@ function getProxyEmoji(name: string): string {
 
 export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) {
   const [sortBy, setSortBy] = useState<SortBy>("traffic");
+  const t = useTranslations("topProxies");
+  const proxiesT = useTranslations("proxies");
 
   const { proxies, totalTraffic, totalConnections } = useMemo(() => {
     if (!data) return { proxies: [], totalTraffic: 0, totalConnections: 0 };
@@ -76,9 +79,9 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
 
   if (proxies.length === 0) {
     return (
-      <OverviewCard title="Top 代理" icon={<Server className="w-4 h-4" />}>
+      <OverviewCard title={t("title")} icon={<Server className="w-4 h-4" />}>
         <div className="py-8 text-center text-sm text-muted-foreground">
-          暂无数据
+          {proxiesT("noData")}
         </div>
       </OverviewCard>
     );
@@ -86,7 +89,7 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
 
   return (
     <OverviewCard 
-      title="Top 代理" 
+      title={t("title")} 
       icon={<Server className="w-4 h-4" />}
       action={
         <Button 
@@ -96,16 +99,16 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
           onClick={toggleSort}
         >
           {sortBy === "traffic" ? (
-            <><ArrowUpDown className="w-3 h-3 mr-1" /> 按流量</>
+            <><ArrowUpDown className="w-3 h-3 mr-1" /> {t("sortByTraffic")}</>
           ) : (
-            <><Users className="w-3 h-3 mr-1" /> 按连接</>
+            <><Link2 className="w-3 h-3 mr-1" /> {t("sortByConnections")}</>
           )}
         </Button>
       }
       footer={
         onViewAll && (
           <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
-            查看全部
+            {t("viewAll")}
           </Button>
         )
       }
@@ -118,7 +121,7 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
             icon={<span className="text-lg">{proxy.emoji}</span>}
             title={proxy.displayName}
             subtitle={sortBy === "traffic" 
-              ? `${proxy.totalConnections} 连接` 
+              ? `${proxy.totalConnections} ${proxiesT("connections")}` 
               : `${formatBytes(proxy.total)}`
             }
             value={sortBy === "traffic" ? proxy.total : proxy.totalConnections}

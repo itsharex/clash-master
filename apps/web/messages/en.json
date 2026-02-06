@@ -126,6 +126,7 @@
     "download": "Download",
     "upload": "Upload",
     "connections": "Connections",
+    "conn": "Conn",
     "ipsCount": "IPs",
     "showing": "Showing",
     "of": "of",
@@ -134,17 +135,60 @@
   },
   "countries": {
     "title": "Countries",
-    "details": "Country Details"
+    "details": "Country Details",
+    "distribution": "Country Traffic Distribution",
+    "continents": "Continents:",
+    "noData": "No data",
+    "connections": "connections"
   },
   "proxies": {
-    "title": "Proxies"
+    "title": "Proxies",
+    "distribution": "Proxy Traffic Distribution",
+    "total": "Total",
+    "download": "Download",
+    "upload": "Upload",
+    "connections": "connections",
+    "sortByTraffic": "Traffic",
+    "sortByConnections": "Connections",
+    "noData": "No data",
+    "viewAll": "View all"
   },
   "rules": {
-    "title": "Rules"
+    "title": "Rules",
+    "distribution": "Rule Chain Distribution",
+    "description": "Traffic distribution by matching rules and their final proxy nodes",
+    "connections": "conn"
   },
   "network": {
     "title": "Network",
     "comingSoon": "Real-time connection monitoring coming soon..."
+  },
+  "map": {
+    "title": "Global Traffic Distribution",
+    "total": "Total",
+    "download": "Download",
+    "upload": "Upload",
+    "connections": "Connections",
+    "hoverHint": "Hover over countries for details",
+    "traffic": "Traffic:",
+    "low": "Low",
+    "high": "High"
+  },
+  "about": {
+    "title": "About",
+    "version": "Version",
+    "projectName": "Clash Master",
+    "description": "Modern and beautiful traffic analysis dashboard for OpenClash",
+    "github": "GitHub",
+    "openSource": "Open Source Project",
+    "license": "MIT License",
+    "currentVersion": "Current Version",
+    "latestVersion": "Latest Version",
+    "updateAvailable": "Update Available",
+    "upToDate": "Up to date",
+    "checkingUpdate": "Checking...",
+    "checkNow": "Check",
+    "viewOnGitHub": "View on GitHub"
   },
   "common": {
     "search": "Search",

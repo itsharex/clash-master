@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { Globe, MapPin } from "lucide-react";
+import { Globe, Link2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/lib/utils";
 import type { CountryStats } from "@clashstats/shared";
@@ -56,6 +57,9 @@ function getContinentColor(continent: string): string {
 }
 
 export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
+  const t = useTranslations("countries");
+  const mapT = useTranslations("map");
+
   const chartData = useMemo(() => {
     if (!data) return [];
     return data.map((country) => ({
@@ -86,19 +90,19 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
           </div>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Total:</span>
+              <span className="text-muted-foreground">{mapT("total")}:</span>
               <span className="font-medium">{formatBytes(item.value)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-blue-500">↓ Download:</span>
+              <span className="text-blue-500">↓ {mapT("download")}:</span>
               <span>{formatBytes(item.download)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-purple-500">↑ Upload:</span>
+              <span className="text-purple-500">↑ {mapT("upload")}:</span>
               <span>{formatBytes(item.upload)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-emerald-500">Connections:</span>
+              <span className="text-emerald-500">{mapT("connections")}:</span>
               <span>{item.connections.toLocaleString()}</span>
             </div>
           </div>
@@ -113,7 +117,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Globe className="h-5 w-5 text-primary" />
-          Country Traffic Distribution
+          {t("distribution")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -189,8 +193,8 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
 
                   {/* Connections */}
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin className="w-3 h-3" />
-                    <span>{item.connections.toLocaleString()} conn</span>
+                    <Link2 className="w-3 h-3" />
+                    <span>{item.connections.toLocaleString()} {t("connections")}</span>
                   </div>
                 </div>
               </div>
@@ -200,7 +204,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
 
         {/* Legend */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-2 border-t border-border">
-          <span className="font-medium">大洲:</span>
+          <span className="font-medium">{t("continents")}</span>
           {Object.entries(CONTINENT_COLORS)
             .filter(([key]) => key !== "Unknown" && key !== "LOCAL")
             .map(([continent, color]) => (

@@ -9,6 +9,7 @@ import {
 } from "react-simple-maps";
 import { scaleLinear } from "d3-scale";
 import { Globe, Info } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/lib/utils";
 import type { CountryStats } from "@clashstats/shared";
@@ -46,6 +47,7 @@ const COUNTRY_NAME_MAPPING: Record<string, string> = {
 };
 
 export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
+  const t = useTranslations("map");
   const [hoveredCountry, setHoveredCountry] = useState<string | null>(null);
   const [tooltipData, setTooltipData] = useState<{
     country: string;
@@ -157,7 +159,7 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Globe className="h-5 w-5 text-primary" />
-          Global Traffic Distribution
+          {t("title")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -224,21 +226,21 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
                 </p>
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total:</span>
+                    <span className="text-muted-foreground">{t("total")}:</span>
                     <span className="font-medium">
                       {formatBytes(tooltipData.traffic)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-blue-500">↓ Download:</span>
+                    <span className="text-blue-500">↓ {t("download")}:</span>
                     <span>{formatBytes(tooltipData.download)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-purple-500">↑ Upload:</span>
+                    <span className="text-purple-500">↑ {t("upload")}:</span>
                     <span>{formatBytes(tooltipData.upload)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-emerald-500">Connections:</span>
+                    <span className="text-emerald-500">{t("connections")}:</span>
                     <span>{tooltipData.connections.toLocaleString()}</span>
                   </div>
                 </div>
@@ -249,7 +251,7 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
           {/* Info hint */}
           <div className="absolute bottom-2 left-2 flex items-center gap-1 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
             <Info className="w-3 h-3" />
-            <span>Hover over countries for details</span>
+            <span>{t("hoverHint")}</span>
           </div>
         </div>
 
@@ -257,9 +259,9 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Color scale legend */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Traffic:</span>
+            <span className="text-xs text-muted-foreground">{t("traffic")}</span>
             <div className="flex items-center gap-1">
-              <span className="text-xs">Low</span>
+              <span className="text-xs">{t("low")}</span>
               <div className="flex">
                 <div
                   className="w-6 h-3"
@@ -278,7 +280,7 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
                   style={{ backgroundColor: "#4f46e5" }}
                 />
               </div>
-              <span className="text-xs">High</span>
+              <span className="text-xs">{t("high")}</span>
             </div>
           </div>
 

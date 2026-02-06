@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Server, Users, ArrowUpDown, ArrowRight } from "lucide-react";
+import { Server, Link2, ArrowUpDown, ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
@@ -41,6 +42,8 @@ function getProxyEmoji(name: string): string {
 
 export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) {
   const [sortBy, setSortBy] = useState<SortBy>("traffic");
+  const t = useTranslations("topProxies");
+  const proxiesT = useTranslations("proxies");
 
   const proxies = useMemo(() => {
     if (!data) return [];
@@ -69,7 +72,7 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <Server className="w-4 h-4" />
-            Top 代理
+            {t("title")}
           </CardTitle>
           <Button 
             variant="ghost" 
@@ -78,9 +81,9 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
             onClick={toggleSort}
           >
             {sortBy === "traffic" ? (
-              <><ArrowUpDown className="w-3 h-3 mr-1" /> 流量</>
+              <><ArrowUpDown className="w-3 h-3 mr-1" /> {proxiesT("sortByTraffic")}</>
             ) : (
-              <><Users className="w-3 h-3 mr-1" /> 连接</>
+              <><Link2 className="w-3 h-3 mr-1" /> {proxiesT("sortByConnections")}</>
             )}
           </Button>
         </div>
@@ -122,7 +125,7 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
                   ↑ {formatBytes(proxy.totalUpload)}
                 </span>
                 <span className="text-muted-foreground flex items-center gap-1">
-                  <Users className="w-3 h-3" />
+                  <Link2 className="w-3 h-3" />
                   {proxy.totalConnections}
                 </span>
               </div>
@@ -141,7 +144,7 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
         {onViewAll && (
           <div className="mt-4 pt-3 border-t border-border/30">
             <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
-              查看全部
+              {proxiesT("viewAll")}
               <ArrowRight className="w-3 h-3 ml-1" />
             </Button>
           </div>

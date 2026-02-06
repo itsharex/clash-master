@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Globe, Users, ArrowUpDown } from "lucide-react";
+import { Globe, Link2, ArrowUpDown } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/utils";
 import type { DomainStats } from "@clashstats/shared";
 
 interface DomainTopListProps {
@@ -30,6 +32,8 @@ function getInitials(domain: string): string {
 
 export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps) {
   const [sortBy, setSortBy] = useState<SortBy>("traffic");
+  const t = useTranslations("topDomains");
+  const proxiesT = useTranslations("proxies");
 
   const { domains, totalTraffic, totalConnections } = useMemo(() => {
     if (!data) return { domains: [], totalTraffic: 0, totalConnections: 0 };
@@ -62,9 +66,9 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
 
   if (domains.length === 0) {
     return (
-      <OverviewCard title="Top 域名" icon={<Globe className="w-4 h-4" />}>
+      <OverviewCard title={t("title")} icon={<Globe className="w-4 h-4" />}>
         <div className="py-8 text-center text-sm text-muted-foreground">
-          暂无数据
+          {proxiesT("noData")}
         </div>
       </OverviewCard>
     );
@@ -72,7 +76,7 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
 
   return (
     <OverviewCard 
-      title="Top 域名" 
+      title={t("title")} 
       icon={<Globe className="w-4 h-4" />}
       action={
         <Button 
@@ -82,16 +86,16 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
           onClick={toggleSort}
         >
           {sortBy === "traffic" ? (
-            <><ArrowUpDown className="w-3 h-3 mr-1" /> 按流量</>
+            <><ArrowUpDown className="w-3 h-3 mr-1" /> {t("sortByTraffic")}</>
           ) : (
-            <><Users className="w-3 h-3 mr-1" /> 按连接</>
+            <><Link2 className="w-3 h-3 mr-1" /> {t("sortByConnections")}</>
           )}
         </Button>
       }
       footer={
         onViewAll && (
           <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
-            查看全部
+            {t("viewAll")}
           </Button>
         )
       }
@@ -115,7 +119,7 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
             }
             title={domain.domain}
             subtitle={sortBy === "traffic" 
-              ? `${domain.totalConnections} 连接` 
+              ? `${domain.totalConnections} ${t("connections")}` 
               : `${formatBytes(domain.total)}`
             }
             value={sortBy === "traffic" ? domain.total : domain.totalConnections}
@@ -128,5 +132,3 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
     </OverviewCard>
   );
 }
-
-import { formatBytes } from "@/lib/utils";

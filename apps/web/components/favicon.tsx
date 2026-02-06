@@ -74,7 +74,7 @@ export function Favicon({ domain, size = "md", className }: FaviconProps) {
   return (
     <div
       className={cn(
-        "rounded-lg overflow-hidden bg-slate-800/50 flex items-center justify-center relative",
+        "rounded-lg overflow-hidden bg-slate-800/50 flex items-center justify-center relative shrink-0",
         sizeMap[size],
         className
       )}
@@ -91,7 +91,7 @@ export function Favicon({ domain, size = "md", className }: FaviconProps) {
         src={faviconUrl}
         alt={cleanDomain}
         className={cn(
-          "w-full h-full object-contain p-0.5",
+          "w-full h-full object-cover p-0.5",
           loading ? "opacity-0" : "opacity-100"
         )}
         onError={() => setError(true)}

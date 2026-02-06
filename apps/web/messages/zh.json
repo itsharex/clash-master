@@ -126,6 +126,7 @@
     "download": "下载",
     "upload": "上传",
     "connections": "连接",
+    "conn": "连接",
     "ipsCount": "个 IP",
     "showing": "显示",
     "of": "共",
@@ -134,17 +135,60 @@
   },
   "countries": {
     "title": "国家/地区",
-    "details": "国家/地区详情"
+    "details": "国家/地区详情",
+    "distribution": "国家/地区流量分布",
+    "continents": "大洲：",
+    "noData": "暂无数据",
+    "connections": "连接"
   },
   "proxies": {
-    "title": "代理节点"
+    "title": "代理节点",
+    "distribution": "代理节点流量分布",
+    "total": "总计",
+    "download": "下载",
+    "upload": "上传",
+    "connections": "连接",
+    "sortByTraffic": "流量",
+    "sortByConnections": "连接",
+    "noData": "暂无数据",
+    "viewAll": "查看全部"
   },
   "rules": {
-    "title": "规则"
+    "title": "规则",
+    "distribution": "规则链路分布",
+    "description": "按匹配规则和最终代理节点的流量分布",
+    "connections": "连接"
   },
   "network": {
     "title": "网络",
     "comingSoon": "实时连接监控功能开发中..."
+  },
+  "map": {
+    "title": "全球流量分布",
+    "total": "总计",
+    "download": "下载",
+    "upload": "上传",
+    "connections": "连接数",
+    "hoverHint": "悬停查看国家详情",
+    "traffic": "流量：",
+    "low": "低",
+    "high": "高"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本",
+    "projectName": "Clash Master",
+    "description": "现代美观的 OpenClash 流量分析看板",
+    "github": "GitHub",
+    "openSource": "开源项目",
+    "license": "MIT 许可证",
+    "currentVersion": "当前版本",
+    "latestVersion": "最新版本",
+    "updateAvailable": "有新版本",
+    "upToDate": "已是最新版本",
+    "checkingUpdate": "检查中...",
+    "checkNow": "检查",
+    "viewOnGitHub": "在 GitHub 查看"
   },
   "common": {
     "search": "搜索",

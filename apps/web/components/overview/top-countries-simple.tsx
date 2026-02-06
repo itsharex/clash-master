@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { Globe, ArrowRight } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { formatBytes, cn } from "@/lib/utils";
 import type { CountryStats } from "@clashstats/shared";
@@ -33,7 +33,7 @@ const countryFlags: Record<string, string> = {
   "LOCAL": "🏠", "UNKNOWN": "🌐", "PRIVATE": "🔒",
 };
 
-const countryNames: Record<string, string> = {
+const countryNamesEn: Record<string, string> = {
   "CN": "China", "US": "United States", "JP": "Japan", "HK": "Hong Kong", "TW": "Taiwan",
   "SG": "Singapore", "KR": "South Korea", "DE": "Germany", "GB": "United Kingdom", "FR": "France",
   "NL": "Netherlands", "CA": "Canada", "AU": "Australia", "IN": "India", "RU": "Russia",
@@ -44,18 +44,31 @@ const countryNames: Record<string, string> = {
   "LOCAL": "Local", "UNKNOWN": "Unknown", "PRIVATE": "Private",
 };
 
+const countryNamesZh: Record<string, string> = {
+  "CN": "中国", "US": "美国", "JP": "日本", "HK": "中国香港", "TW": "中国台湾",
+  "SG": "新加坡", "KR": "韩国", "DE": "德国", "GB": "英国", "FR": "法国",
+  "NL": "荷兰", "CA": "加拿大", "AU": "澳大利亚", "IN": "印度", "RU": "俄罗斯",
+  "BR": "巴西", "TR": "土耳其", "VN": "越南", "TH": "泰国", "ID": "印度尼西亚",
+  "MY": "马来西亚", "PH": "菲律宾", "SE": "瑞典", "CH": "瑞士", "IT": "意大利",
+  "ES": "西班牙", "PT": "葡萄牙", "PL": "波兰", "UA": "乌克兰", "MX": "墨西哥",
+  "AR": "阿根廷", "CL": "智利", "ZA": "南非", "AE": "阿联酋", "SA": "沙特阿拉伯",
+  "LOCAL": "本地", "UNKNOWN": "未知", "PRIVATE": "私有",
+};
+
 function getCountryFlag(countryCode: string): string {
   return countryFlags[countryCode.toUpperCase()] || "🌐";
 }
 
-function getCountryName(code: string): string {
-  return countryNames[code.toUpperCase()] || code;
+function getCountryName(code: string, locale: string): string {
+  const names = locale === "zh" ? countryNamesZh : countryNamesEn;
+  return names[code.toUpperCase()] || code;
 }
 
 export const TopCountriesSimple = React.memo(function TopCountriesSimple({
   countries,
 }: TopCountriesSimpleProps) {
   const t = useTranslations("topCountries");
+  const locale = useLocale();
 
   const sortedCountries = useMemo(() => {
     if (!countries?.length) return [];
@@ -107,7 +120,7 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
                 </span>
                 <span className="text-base shrink-0">{getCountryFlag(country.country)}</span>
                 <span className="flex-1 text-sm font-medium">
-                  {getCountryName(country.country)}
+                  {getCountryName(country.country, locale)}
                 </span>
                 <span className="text-sm font-bold tabular-nums shrink-0">
                   {formatBytes(total)}

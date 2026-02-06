@@ -1,1 +1,1 @@
-{"name":"openclash-stats","private":true,"workspaces":["apps/*","packages/*"],"packageManager":"pnpm@9.0.0","scripts":{"build":"turbo build","dev":"turbo dev","lint":"turbo lint"},"devDependencies":{"turbo":"^2.3.0"}}
+{"name":"openclash-stats","version":"1.0.1","private":true,"workspaces":["apps/*","packages/*"],"packageManager":"pnpm@9.0.0","scripts":{"build":"turbo build","dev":"turbo dev","lint":"turbo lint"},"devDependencies":{"turbo":"^2.3.0"}}

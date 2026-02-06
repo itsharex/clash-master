@@ -100,11 +100,11 @@ export function DomainsTable({ data }: DomainsTableProps) {
   };
 
   const SortIcon = ({ column }: { column: SortKey }) => {
-    if (sortKey !== column) return <ArrowUpDown className="ml-2 h-3 w-3 text-muted-foreground" />;
+    if (sortKey !== column) return <ArrowUpDown className="ml-1 h-3 w-3 text-muted-foreground" />;
     return sortOrder === "asc" ? (
-      <ArrowUp className="ml-2 h-3 w-3 text-primary" />
+      <ArrowUp className="ml-1 h-3 w-3 text-primary" />
     ) : (
-      <ArrowDown className="ml-2 h-3 w-3 text-primary" />
+      <ArrowDown className="ml-1 h-3 w-3 text-primary" />
     );
   };
 
@@ -138,8 +138,8 @@ export function DomainsTable({ data }: DomainsTableProps) {
   return (
     <div className="glass-card rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="p-5 border-b border-border/50">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="p-4 sm:p-5 border-b border-border/50">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">{t("title")}</h3>
             <p className="text-sm text-muted-foreground">
@@ -158,39 +158,68 @@ export function DomainsTable({ data }: DomainsTableProps) {
         </div>
       </div>
 
-      {/* Table Header */}
-      <div className="grid grid-cols-12 gap-4 px-5 py-3 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+      {/* Desktop Table Header - Hidden on mobile */}
+      <div className="hidden sm:grid grid-cols-12 gap-3 px-5 py-3 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
         <div 
-          className="col-span-4 sm:col-span-3 flex items-center cursor-pointer hover:text-foreground transition-colors"
+          className="col-span-3 flex items-center cursor-pointer hover:text-foreground transition-colors"
           onClick={() => handleSort("domain")}
         >
           {t("domain")}
           <SortIcon column="domain" />
         </div>
         <div 
-          className="col-span-3 sm:col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+          className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
           onClick={() => handleSort("totalDownload")}
         >
           {t("download")}
           <SortIcon column="totalDownload" />
         </div>
         <div 
-          className="col-span-3 sm:col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+          className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
           onClick={() => handleSort("totalUpload")}
         >
           {t("upload")}
           <SortIcon column="totalUpload" />
         </div>
         <div 
-          className="hidden sm:col-span-2 sm:flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+          className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
           onClick={() => handleSort("totalConnections")}
         >
           {t("conn")}
           <SortIcon column="totalConnections" />
         </div>
+        <div className="col-span-1 flex items-center justify-end">
+          {t("last")}
+        </div>
         <div className="col-span-2 flex items-center justify-end">
           {t("ipCount")}
         </div>
+      </div>
+
+      {/* Mobile Sort Bar - Shown only on mobile */}
+      <div className="sm:hidden flex items-center gap-2 px-4 py-2 bg-secondary/30 overflow-x-auto">
+        {([
+          { key: "domain" as SortKey, label: t("domain") },
+          { key: "totalDownload" as SortKey, label: t("download") },
+          { key: "totalUpload" as SortKey, label: t("upload") },
+          { key: "totalConnections" as SortKey, label: t("conn") },
+        ]).map(({ key, label }) => (
+          <button
+            key={key}
+            className={cn(
+              "flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors",
+              sortKey === key
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => handleSort(key)}
+          >
+            {label}
+            {sortKey === key && (
+              sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Table Body */}
@@ -205,43 +234,47 @@ export function DomainsTable({ data }: DomainsTableProps) {
             
             return (
               <div key={domain.domain} className="group">
-                {/* Main Row */}
+                {/* Desktop Row */}
                 <div
                   className={cn(
-                    "grid grid-cols-12 gap-4 px-5 py-4 items-center hover:bg-secondary/20 transition-colors cursor-pointer",
+                    "hidden sm:grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-secondary/20 transition-colors cursor-pointer",
                     isExpanded && "bg-secondary/10"
                   )}
                   style={{ animationDelay: `${index * 50}ms` }}
                   onClick={() => toggleExpand(domain.domain)}
                 >
                   {/* Domain with Favicon */}
-                  <div className="col-span-4 sm:col-span-3 flex items-center gap-3 min-w-0">
-                    <Favicon domain={domain.domain} size="sm" />
+                  <div className="col-span-3 flex items-center gap-3 min-w-0">
+                    <Favicon domain={domain.domain} size="sm" className="shrink-0" />
                     <div className="min-w-0">
                       <p className="font-medium truncate text-sm">
                         {domain.domain || t("unknown")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDuration(domain.lastSeen)}
                       </p>
                     </div>
                   </div>
 
                   {/* Download */}
-                  <div className="col-span-3 sm:col-span-2 text-right tabular-nums text-sm">
+                  <div className="col-span-2 text-right tabular-nums text-sm">
                     <span className="text-blue-500">{formatBytes(domain.totalDownload)}</span>
                   </div>
 
                   {/* Upload */}
-                  <div className="col-span-3 sm:col-span-2 text-right tabular-nums text-sm">
+                  <div className="col-span-2 text-right tabular-nums text-sm">
                     <span className="text-purple-500">{formatBytes(domain.totalUpload)}</span>
                   </div>
 
                   {/* Connections */}
-                  <div className="hidden sm:col-span-2 sm:flex items-center justify-end">
+                  <div className="col-span-2 flex items-center justify-end">
                     <span className="px-2.5 py-1 rounded-full bg-secondary text-xs font-medium">
                       {domain.totalConnections}
                     </span>
+                  </div>
+
+                  {/* Last Seen */}
+                  <div className="col-span-1 text-right">
+                    <p className="text-xs text-muted-foreground">
+                      {formatDuration(domain.lastSeen)}
+                    </p>
                   </div>
 
                   {/* IP Count - Clickable */}
@@ -271,26 +304,75 @@ export function DomainsTable({ data }: DomainsTableProps) {
                   </div>
                 </div>
 
+                {/* Mobile Row - Card-style layout */}
+                <div
+                  className={cn(
+                    "sm:hidden px-4 py-3 hover:bg-secondary/20 transition-colors cursor-pointer",
+                    isExpanded && "bg-secondary/10"
+                  )}
+                  onClick={() => toggleExpand(domain.domain)}
+                >
+                  {/* Top: Favicon + Domain + Expand */}
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <Favicon domain={domain.domain} size="sm" className="shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">
+                        {domain.domain || t("unknown")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDuration(domain.lastSeen)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 px-2 gap-1 text-xs font-medium shrink-0",
+                        isExpanded 
+                          ? "bg-primary/10 text-primary" 
+                          : "bg-secondary/50 text-muted-foreground"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpand(domain.domain);
+                      }}
+                    >
+                      <Server className="h-3 w-3" />
+                      {domain.ips.length}
+                      {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </Button>
+                  </div>
+
+                  {/* Bottom: Stats row */}
+                  <div className="flex items-center justify-between text-xs pl-[30px]">
+                    <span className="text-blue-500 tabular-nums">↓ {formatBytes(domain.totalDownload)}</span>
+                    <span className="text-purple-500 tabular-nums">↑ {formatBytes(domain.totalUpload)}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
+                      {domain.totalConnections} {t("conn")}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Expanded IP List */}
                 {isExpanded && (
-                  <div className="px-5 pb-4 bg-secondary/5">
+                  <div className="px-4 sm:px-5 pb-4 bg-secondary/5">
                     <div className="pt-2 pb-1 px-1">
                       <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
                         <Globe className="h-3 w-3" />
                         {t("associatedIPs")}
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {domain.ips.map((ip, ipIndex) => {
+                        {domain.ips.map((ip) => {
                           const gradient = getIPGradient(ip);
                           return (
                             <div
                               key={ip}
-                              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border/50 hover:border-primary/30 hover:shadow-sm transition-all"
+                              className="flex items-center gap-2 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg bg-card border border-border/50 hover:border-primary/30 hover:shadow-sm transition-all"
                             >
-                              <div className={`w-6 h-6 rounded-md bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0`}>
-                                <Server className="w-3 h-3 text-white" />
+                              <div className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0`}>
+                                <Server className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
                               </div>
-                              <code className="text-xs font-mono">{ip}</code>
+                              <code className="text-xs font-mono break-all">{ip}</code>
                             </div>
                           );
                         })}
@@ -306,8 +388,8 @@ export function DomainsTable({ data }: DomainsTableProps) {
 
       {/* Pagination Footer */}
       {totalPages > 0 && (
-        <div className="p-4 border-t border-border/50 bg-secondary/20">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="p-3 sm:p-4 border-t border-border/50 bg-secondary/20">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             {/* Page size selector */}
             <div className="flex items-center gap-2">
               <DropdownMenu>
@@ -335,9 +417,12 @@ export function DomainsTable({ data }: DomainsTableProps) {
             </div>
             
             {/* Pagination info and controls */}
-            <div className="flex items-center gap-3">
-              <p className="text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
                 {t("showing")} {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredData.length)} {t("of")} {filteredData.length}
+              </p>
+              <p className="text-xs text-muted-foreground sm:hidden">
+                {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, filteredData.length)} / {filteredData.length}
               </p>
               
               <div className="flex items-center gap-1">
@@ -353,7 +438,7 @@ export function DomainsTable({ data }: DomainsTableProps) {
                 
                 {getPageNumbers().map((page, idx) => (
                   page === '...' ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
+                    <span key={`ellipsis-${idx}`} className="px-1 sm:px-2 text-muted-foreground text-xs">...</span>
                   ) : (
                     <Button
                       key={page}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
 import { useTranslations } from "next-intl";
 import { BarChart3 } from "lucide-react";
@@ -31,14 +31,34 @@ const COLORS = [
   "#F97316", // Orange
 ];
 
+// Custom label renderer to prevent text wrapping in SVG
+function renderCustomBarLabel(props: any) {
+  const { x, y, width, value, height } = props;
+  return (
+    <text
+      x={x + width + 6}
+      y={y + height / 2}
+      fill="currentColor"
+      fontSize={11}
+      dominantBaseline="central"
+      textAnchor="start"
+      style={{ fontVariantNumeric: "tabular-nums" }}
+    >
+      {formatBytes(value, 0)}
+    </text>
+  );
+}
+
 export function TopDomainsChart({ data }: TopDomainsChartProps) {
   const t = useTranslations("domains");
   const commonT = useTranslations("stats");
   const [topN, setTopN] = useState<TopOption>(10);
+  // Track whether this is the initial render to only animate on first load
+  const hasRenderedRef = useRef(false);
 
   const chartData = useMemo(() => {
     if (!data) return [];
-    return data
+    const result = data
       .slice(0, topN)
       .map((domain, index) => ({
         name: domain.domain.length > 20 ? domain.domain.slice(0, 20) + "..." : domain.domain,
@@ -48,6 +68,11 @@ export function TopDomainsChart({ data }: TopDomainsChartProps) {
         upload: domain.totalUpload,
         color: COLORS[index % COLORS.length],
       }));
+    // After first data load, mark as rendered so subsequent updates skip animation
+    if (result.length > 0) {
+      setTimeout(() => { hasRenderedRef.current = true; }, 800);
+    }
+    return result;
   }, [data, topN]);
 
   const CustomTooltip = ({ active, payload }: any) => {
@@ -136,16 +161,20 @@ export function TopDomainsChart({ data }: TopDomainsChartProps) {
                 content={<CustomTooltip />} 
                 cursor={{ fill: "rgba(128, 128, 128, 0.1)" }} 
               />
-              <Bar dataKey="total" radius={[0, 4, 4, 0]} maxBarSize={32}>
+              <Bar
+                dataKey="total"
+                radius={[0, 4, 4, 0]}
+                maxBarSize={32}
+                isAnimationActive={!hasRenderedRef.current}
+                animationDuration={600}
+              >
                 {chartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
                 <LabelList
                   dataKey="total"
                   position="right"
-                  formatter={(value: number) => formatBytes(value, 0)}
-                  className="fill-foreground"
-                  style={{ fontSize: 10, whiteSpace: 'nowrap' }}
+                  content={renderCustomBarLabel}
                 />
               </Bar>
             </BarChart>

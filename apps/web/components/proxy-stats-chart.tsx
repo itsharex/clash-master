@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { Server } from "lucide-react";
+import { Server, Link2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/lib/utils";
 import type { ProxyStats } from "@clashstats/shared";
@@ -26,6 +27,8 @@ function formatProxyName(name: string): string {
 }
 
 export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
+  const t = useTranslations("proxies");
+
   const chartData = useMemo(() => {
     if (!data) return [];
     return data.map((proxy, index) => ({
@@ -51,19 +54,19 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
           <p className="font-medium text-sm mb-2">{item.name}</p>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Total:</span>
+              <span className="text-muted-foreground">{t("total")}:</span>
               <span className="font-medium">{formatBytes(item.value)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-blue-500">↓ Download:</span>
+              <span className="text-blue-500">↓ {t("download")}:</span>
               <span>{formatBytes(item.download)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-purple-500">↑ Upload:</span>
+              <span className="text-purple-500">↑ {t("upload")}:</span>
               <span>{formatBytes(item.upload)}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-emerald-500">Connections:</span>
+              <span className="text-emerald-500">{t("connections")}:</span>
               <span>{item.connections.toLocaleString()}</span>
             </div>
           </div>
@@ -78,7 +81,7 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <Server className="h-5 w-5 text-primary" />
-          Proxy Traffic Distribution
+          {t("distribution")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -105,17 +108,17 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
         </div>
 
         {/* Proxy Cards Grid */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {chartData.map((item) => {
             const percentage = totalTraffic > 0 ? (item.value / totalTraffic) * 100 : 0;
             
             return (
               <div
                 key={item.rawName}
-                className="p-4 rounded-xl border border-border/50 bg-card/50 hover:bg-card transition-colors"
+                className="p-3 rounded-xl border border-border/50 bg-card/50 hover:bg-card transition-colors"
               >
                 {/* Header: Color dot + Name */}
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-2">
                   <div
                     className="w-3 h-3 rounded-full shrink-0"
                     style={{ backgroundColor: item.color }}
@@ -129,7 +132,7 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
                 <div className="space-y-2">
                   {/* Total with percentage */}
                   <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-bold tabular-nums">
+                    <span className="text-lg font-bold tabular-nums">
                       {formatBytes(item.value)}
                     </span>
                     <span className="text-xs text-muted-foreground">
@@ -156,9 +159,10 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
                   </div>
 
                   {/* Connections */}
-                  <p className="text-xs text-muted-foreground">
-                    {item.connections.toLocaleString()} connections
-                  </p>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Link2 className="w-3 h-3" />
+                    <span>{item.connections.toLocaleString()} {t("connections")}</span>
+                  </div>
                 </div>
               </div>
             );

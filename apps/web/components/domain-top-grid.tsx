@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Globe, Users, ArrowUpDown, ArrowRight } from "lucide-react";
+import { Globe, Link2, ArrowUpDown, ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
@@ -25,6 +26,8 @@ function getInitials(domain: string): string {
 
 export function DomainTopGrid({ data, limit = 5, onViewAll }: DomainTopGridProps) {
   const [sortBy, setSortBy] = useState<SortBy>("traffic");
+  const t = useTranslations("topDomains");
+  const proxiesT = useTranslations("proxies");
 
   const domains = useMemo(() => {
     if (!data) return [];
@@ -49,13 +52,13 @@ export function DomainTopGrid({ data, limit = 5, onViewAll }: DomainTopGridProps
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <Globe className="w-4 h-4" />
-            Top 域名
+            {t("title")}
           </CardTitle>
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={toggleSort}>
             {sortBy === "traffic" ? (
-              <><ArrowUpDown className="w-3 h-3 mr-1" /> 流量</>
+              <><ArrowUpDown className="w-3 h-3 mr-1" /> {proxiesT("sortByTraffic")}</>
             ) : (
-              <><Users className="w-3 h-3 mr-1" /> 连接</>
+              <><Link2 className="w-3 h-3 mr-1" /> {proxiesT("sortByConnections")}</>
             )}
           </Button>
         </div>
@@ -106,7 +109,7 @@ export function DomainTopGrid({ data, limit = 5, onViewAll }: DomainTopGridProps
                   <span className="text-purple-500">↑ {formatBytes(domain.totalUpload)}</span>
                 </div>
                 <span className="flex items-center gap-1">
-                  <Users className="w-3 h-3" />
+                  <Link2 className="w-3 h-3" />
                   {domain.totalConnections}
                 </span>
               </div>
@@ -117,7 +120,7 @@ export function DomainTopGrid({ data, limit = 5, onViewAll }: DomainTopGridProps
         {onViewAll && (
           <div className="mt-4 pt-3 border-t border-border/30">
             <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
-              查看全部
+              {proxiesT("viewAll")}
               <ArrowRight className="w-3 h-3 ml-1" />
             </Button>
           </div>
