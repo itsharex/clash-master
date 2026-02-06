@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { ProxyStats } from "@clashmaster/shared";
 
 interface ProxyTopListProps {
@@ -121,7 +121,7 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
             icon={<span className="text-lg">{proxy.emoji}</span>}
             title={proxy.displayName}
             subtitle={sortBy === "traffic" 
-              ? `${proxy.totalConnections} ${proxiesT("connections")}` 
+              ? `${formatNumber(proxy.totalConnections)} ${proxiesT("connections")}` 
               : `${formatBytes(proxy.total)}`
             }
             value={sortBy === "traffic" ? proxy.total : proxy.totalConnections}

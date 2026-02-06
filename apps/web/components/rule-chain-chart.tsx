@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Network, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { RuleStats } from "@clashmaster/shared";
 
 interface RuleChainChartProps {
@@ -159,7 +159,7 @@ export function RuleChainChart({ data }: RuleChainChartProps) {
 
                   {/* Detailed Stats */}
                   <div className="flex items-center gap-3 sm:gap-4 text-xs text-muted-foreground shrink-0">
-                    <span className="tabular-nums">{rule.totalConnections.toLocaleString()} {t("connections")}</span>
+                    <span className="tabular-nums">{formatNumber(rule.totalConnections)} {t("connections")}</span>
                     <span className="tabular-nums text-blue-500">↓ {formatBytes(rule.totalDownload)}</span>
                     <span className="tabular-nums text-purple-500">↑ {formatBytes(rule.totalUpload)}</span>
                   </div>

@@ -61,11 +61,13 @@ const OverviewContent = memo(function OverviewContent({
   countryData,
   error,
   activeBackendId,
+  onNavigate,
 }: {
   data: StatsSummary | null;
   countryData: CountryStats[];
   error: string | null;
   activeBackendId?: number;
+  onNavigate?: (tab: string) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -75,6 +77,7 @@ const OverviewContent = memo(function OverviewContent({
         proxies={data?.proxyStats || []}
         countries={countryData}
         activeBackendId={activeBackendId}
+        onNavigate={onNavigate}
       />
     </div>
   );
@@ -294,6 +297,7 @@ export default function DashboardPage() {
             countryData={countryData}
             error={error}
             activeBackendId={activeBackend?.id}
+            onNavigate={setActiveTab}
           />
         );
       case "domains":
@@ -313,6 +317,7 @@ export default function DashboardPage() {
             countryData={countryData}
             error={error}
             activeBackendId={activeBackend?.id}
+            onNavigate={setActiveTab}
           />
         );
     }

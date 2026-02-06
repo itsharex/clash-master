@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Favicon } from "@/components/favicon";
-import { formatBytes, formatDuration } from "@/lib/utils";
+import { formatBytes, formatNumber, formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { DomainStats } from "@clashmaster/shared";
 import {
@@ -266,7 +266,7 @@ export function DomainsTable({ data }: DomainsTableProps) {
                   {/* Connections */}
                   <div className="col-span-2 flex items-center justify-end">
                     <span className="px-2.5 py-1 rounded-full bg-secondary text-xs font-medium">
-                      {domain.totalConnections}
+                      {formatNumber(domain.totalConnections)}
                     </span>
                   </div>
 
@@ -348,7 +348,7 @@ export function DomainsTable({ data }: DomainsTableProps) {
                     <span className="text-blue-500 tabular-nums">↓ {formatBytes(domain.totalDownload)}</span>
                     <span className="text-purple-500 tabular-nums">↑ {formatBytes(domain.totalUpload)}</span>
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
-                      {domain.totalConnections} {t("conn")}
+                      {formatNumber(domain.totalConnections)} {t("conn")}
                     </span>
                   </div>
                 </div>

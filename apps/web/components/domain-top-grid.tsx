@@ -5,7 +5,7 @@ import { Globe, Link2, ArrowUpDown, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { DomainStats } from "@clashmaster/shared";
 
 interface DomainTopGridProps {
@@ -110,7 +110,7 @@ export function DomainTopGrid({ data, limit = 5, onViewAll }: DomainTopGridProps
                 </div>
                 <span className="flex items-center gap-1">
                   <Link2 className="w-3 h-3" />
-                  {domain.totalConnections}
+                  {formatNumber(domain.totalConnections)}
                 </span>
               </div>
             </div>

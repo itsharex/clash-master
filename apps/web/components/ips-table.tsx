@@ -5,7 +5,7 @@ import { Search, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Row
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { IPStats } from "@clashmaster/shared";
 import {
@@ -295,7 +295,7 @@ export function IPsTable({ data }: IPsTableProps) {
                   {/* Connections */}
                   <div className="col-span-1 flex items-center justify-end">
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">
-                      {ip.totalConnections}
+                      {formatNumber(ip.totalConnections)}
                     </span>
                   </div>
 
@@ -379,7 +379,7 @@ export function IPsTable({ data }: IPsTableProps) {
                     <span className="text-blue-500 tabular-nums">↓ {formatBytes(ip.totalDownload)}</span>
                     <span className="text-purple-500 tabular-nums">↑ {formatBytes(ip.totalUpload)}</span>
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
-                      {ip.totalConnections} {t("conn")}
+                      {formatNumber(ip.totalConnections)} {t("conn")}
                     </span>
                   </div>
                 </div>

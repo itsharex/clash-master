@@ -4,13 +4,14 @@ import React, { useMemo } from "react";
 import { Server, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import type { ProxyStats } from "@clashmaster/shared";
 
 interface TopProxiesSimpleProps {
   proxies: ProxyStats[];
   sortBy: "traffic" | "connections";
   onSortChange: (mode: "traffic" | "connections") => void;
+  onViewAll?: () => void;
 }
 
 function simplifyProxyName(name: string): string {
@@ -24,6 +25,7 @@ export const TopProxiesSimple = React.memo(function TopProxiesSimple({
   proxies,
   sortBy,
   onSortChange,
+  onViewAll,
 }: TopProxiesSimpleProps) {
   const t = useTranslations("topProxies");
 
@@ -154,7 +156,7 @@ export const TopProxiesSimple = React.memo(function TopProxiesSimple({
                     <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(proxyItem.totalUpload)}</span>
                     <span className="flex items-center gap-1 tabular-nums">
                       <Link2 className="w-3 h-3" />
-                      {proxyItem.totalConnections}
+                      {formatNumber(proxyItem.totalConnections)}
                     </span>
                   </div>
                   <span className="tabular-nums">{sharePercent.toFixed(1)}%</span>
@@ -167,7 +169,7 @@ export const TopProxiesSimple = React.memo(function TopProxiesSimple({
 
       {/* Footer */}
       <div className="pt-2 border-t border-border/30">
-        <Button variant="ghost" size="sm" className="w-full h-9 text-xs">
+        <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
           {t("viewAll")}
           <ArrowRight className="w-3 h-3 ml-1" />
         </Button>

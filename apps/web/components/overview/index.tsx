@@ -15,14 +15,16 @@ interface OverviewTabProps {
   proxies: ProxyStats[];
   countries: CountryStats[];
   activeBackendId?: number;
+  onNavigate?: (tab: string) => void;
 }
 
 // Cache for trend data: key = `${backendId}-${timeRange}`
 const trendDataCache = new Map<string, TrafficTrendPoint[]>();
 
-export function OverviewTab({ domains, proxies, countries, activeBackendId }: OverviewTabProps) {
+export function OverviewTab({ domains, proxies, countries, activeBackendId, onNavigate }: OverviewTabProps) {
   const [domainSort, setDomainSort] = useState<"traffic" | "connections">("traffic");
   const [proxySort, setProxySort] = useState<"traffic" | "connections">("traffic");
+  const [countrySort, setCountrySort] = useState<"traffic" | "connections">("traffic");
   
   // Traffic trend state
   const [trendData, setTrendData] = useState<TrafficTrendPoint[]>([]);
@@ -133,6 +135,7 @@ export function OverviewTab({ domains, proxies, countries, activeBackendId }: Ov
           domains={domains} 
           sortBy={domainSort}
           onSortChange={setDomainSort}
+          onViewAll={() => onNavigate?.("domains")}
         />
         
         {/* Top Proxies */}
@@ -140,10 +143,16 @@ export function OverviewTab({ domains, proxies, countries, activeBackendId }: Ov
           proxies={proxies}
           sortBy={proxySort}
           onSortChange={setProxySort}
+          onViewAll={() => onNavigate?.("proxies")}
         />
         
         {/* Top Countries */}
-        <TopCountriesSimple countries={countries} />
+        <TopCountriesSimple 
+          countries={countries}
+          sortBy={countrySort}
+          onSortChange={setCountrySort}
+          onViewAll={() => onNavigate?.("countries")}
+        />
       </div>
     </div>
   );

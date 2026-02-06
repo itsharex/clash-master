@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Server, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { ProxyStats } from "@clashmaster/shared";
 
 interface ProxyStatsChartProps {
@@ -13,17 +13,22 @@ interface ProxyStatsChartProps {
 }
 
 const COLORS = [
-  "#3B82F6", "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B",
-  "#EF4444", "#EC4899", "#6366F1", "#14B8A6", "#F97316",
+  "#3B82F6",
+  "#8B5CF6",
+  "#06B6D4",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#EC4899",
+  "#6366F1",
+  "#14B8A6",
+  "#F97316",
 ];
 
 // Format proxy name for display
 function formatProxyName(name: string): string {
   if (!name) return "DIRECT";
-  return name
-    .replace(/^\["?/, "")
-    .replace(/"?\]$/, "")
-    .trim();
+  return name.replace(/^\["?/, "").replace(/"?\]$/, "").trim();
 }
 
 export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
@@ -67,7 +72,7 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-500">{t("connections")}:</span>
-              <span>{item.connections.toLocaleString()}</span>
+              <span>{formatNumber(item.connections)}</span>
             </div>
           </div>
         </div>
@@ -96,8 +101,7 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
                 innerRadius={50}
                 outerRadius={80}
                 paddingAngle={2}
-                dataKey="value"
-              >
+                dataKey="value">
                 {chartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
@@ -110,13 +114,13 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
         {/* Proxy Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {chartData.map((item) => {
-            const percentage = totalTraffic > 0 ? (item.value / totalTraffic) * 100 : 0;
-            
+            const percentage =
+              totalTraffic > 0 ? (item.value / totalTraffic) * 100 : 0;
+
             return (
               <div
                 key={item.rawName}
-                className="p-3 rounded-xl border border-border/50 bg-card/50 hover:bg-card transition-colors"
-              >
+                className="p-3 rounded-xl border border-border/50 bg-card/50 hover:bg-card transition-colors">
                 {/* Header: Color dot + Name */}
                 <div className="flex items-center gap-2 mb-2">
                   <div
@@ -144,7 +148,10 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${percentage}%`, backgroundColor: item.color }}
+                      style={{
+                        width: `${percentage}%`,
+                        backgroundColor: item.color,
+                      }}
                     />
                   </div>
 
@@ -161,7 +168,9 @@ export function ProxyStatsChart({ data }: ProxyStatsChartProps) {
                   {/* Connections */}
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Link2 className="w-3 h-3" />
-                    <span>{item.connections.toLocaleString()} {t("connections")}</span>
+                    <span>
+                      {formatNumber(item.connections)} {t("connections")}
+                    </span>
                   </div>
                 </div>
               </div>

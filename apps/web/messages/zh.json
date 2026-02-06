@@ -85,7 +85,9 @@
   },
   "topCountries": {
     "title": "Top 国家",
-    "viewAll": "查看全部"
+    "viewAll": "查看全部",
+    "sortByTraffic": "按流量排序",
+    "sortByConnections": "按连接排序"
   },
   "domains": {
     "title": "热门域名",

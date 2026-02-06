@@ -11,7 +11,7 @@ import { scaleLinear } from "d3-scale";
 import { Globe, Info } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
 interface WorldTrafficMapProps {
@@ -241,7 +241,7 @@ export function WorldTrafficMap({ data }: WorldTrafficMapProps) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-emerald-500">{t("connections")}:</span>
-                    <span>{tooltipData.connections.toLocaleString()}</span>
+                    <span>{formatNumber(tooltipData.connections)}</span>
                   </div>
                 </div>
               </div>

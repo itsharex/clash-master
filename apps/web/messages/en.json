@@ -85,7 +85,9 @@
   },
   "topCountries": {
     "title": "Top Countries",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "sortByTraffic": "Sort by traffic",
+    "sortByConnections": "Sort by connections"
   },
   "domains": {
     "title": "Top Domains",

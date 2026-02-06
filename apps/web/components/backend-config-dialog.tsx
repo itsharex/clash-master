@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 interface Backend {
@@ -631,7 +631,7 @@ export function BackendConfigDialog({
                     <div className="p-3 rounded-lg bg-muted">
                       <div className="text-xs text-muted-foreground">{t("connectionsCount")}</div>
                       <div className="text-lg font-semibold">
-                        {dbStats ? dbStats.totalConnectionsCount.toLocaleString() : "--"}
+                        {dbStats ? formatNumber(dbStats.totalConnectionsCount) : "--"}
                       </div>
                     </div>
                   </div>

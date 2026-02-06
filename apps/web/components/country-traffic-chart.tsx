@@ -5,7 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Globe, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
 interface CountryTrafficChartProps {
@@ -103,7 +103,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-emerald-500">{mapT("connections")}:</span>
-              <span>{item.connections.toLocaleString()}</span>
+              <span>{formatNumber(item.connections)}</span>
             </div>
           </div>
         </div>
@@ -194,7 +194,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
                   {/* Connections */}
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Link2 className="w-3 h-3" />
-                    <span>{item.connections.toLocaleString()} {t("connections")}</span>
+                    <span>{formatNumber(item.connections)} {t("connections")}</span>
                   </div>
                 </div>
               </div>

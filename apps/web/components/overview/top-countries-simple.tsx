@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Globe, ArrowRight } from "lucide-react";
+import { Globe, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { formatBytes, cn } from "@/lib/utils";
+import { formatBytes, formatNumber, cn } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
 interface TopCountriesSimpleProps {
   countries: CountryStats[];
+  sortBy: "traffic" | "connections";
+  onSortChange: (mode: "traffic" | "connections") => void;
+  onViewAll?: () => void;
 }
 
 // Country code to flag emoji mapping
@@ -66,6 +69,9 @@ function getCountryName(code: string, locale: string): string {
 
 export const TopCountriesSimple = React.memo(function TopCountriesSimple({
   countries,
+  sortBy,
+  onSortChange,
+  onViewAll,
 }: TopCountriesSimpleProps) {
   const t = useTranslations("topCountries");
   const locale = useLocale();
@@ -73,9 +79,14 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
   const sortedCountries = useMemo(() => {
     if (!countries?.length) return [];
     return [...countries]
-      .sort((a, b) => b.totalDownload + b.totalUpload - a.totalDownload - a.totalUpload)
+      .sort((a, b) => {
+        if (sortBy === "traffic") {
+          return (b.totalDownload + b.totalUpload) - (a.totalDownload + a.totalUpload);
+        }
+        return b.totalConnections - a.totalConnections;
+      })
       .slice(0, 6);
-  }, [countries]);
+  }, [countries, sortBy]);
 
   const maxTotal = useMemo(() => {
     if (!sortedCountries.length) return 1;
@@ -95,6 +106,38 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
           <Globe className="w-4 h-4" />
           {t("title")}
         </h3>
+        
+        {/* Sort toggle */}
+        <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 rounded-md transition-all",
+              sortBy === "traffic" 
+                ? "bg-background shadow-sm text-primary" 
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => onSortChange("traffic")}
+            title={t("sortByTraffic")}
+          >
+            <BarChart3 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 rounded-md transition-all",
+              sortBy === "connections" 
+                ? "bg-background shadow-sm text-primary" 
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => onSortChange("connections")}
+            title={t("sortByConnections")}
+          >
+            <Link2 className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {/* List */}
@@ -124,8 +167,8 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
                 )}>
                   {index + 1}
                 </span>
-                <span className="text-base shrink-0">{getCountryFlag(country.country)}</span>
-                <span className="flex-1 text-sm font-medium">
+                <span className="text-sm leading-none shrink-0">{getCountryFlag(country.country)}</span>
+                <span className="flex-1 text-sm font-medium truncate" title={getCountryName(country.country, locale)}>
                   {getCountryName(country.country, locale)}
                 </span>
                 <span className="text-sm font-bold tabular-nums shrink-0">
@@ -151,6 +194,10 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
                   <div className="flex items-center gap-2">
                     <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(country.totalDownload)}</span>
                     <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(country.totalUpload)}</span>
+                    <span className="flex items-center gap-1 tabular-nums">
+                      <Link2 className="w-3 h-3" />
+                      {formatNumber(country.totalConnections)}
+                    </span>
                   </div>
                   <span className="tabular-nums">{sharePercent.toFixed(1)}%</span>
                 </div>
@@ -162,11 +209,16 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
 
       {/* Footer */}
       <div className="pt-2 border-t border-border/30">
-        <Button variant="ghost" size="sm" className="w-full h-9 text-xs">
+        <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
           {t("viewAll")}
           <ArrowRight className="w-3 h-3 ml-1" />
         </Button>
       </div>
     </div>
   );
-}, (prev, next) => JSON.stringify(prev.countries) === JSON.stringify(next.countries));
+}, (prev, next) => {
+  return (
+    JSON.stringify(prev.countries) === JSON.stringify(next.countries) &&
+    prev.sortBy === next.sortBy
+  );
+});

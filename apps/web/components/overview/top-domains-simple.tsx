@@ -4,13 +4,14 @@ import React, { useMemo } from "react";
 import { Globe, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import type { DomainStats } from "@clashmaster/shared";
 
 interface TopDomainsSimpleProps {
   domains: DomainStats[];
   sortBy: "traffic" | "connections";
   onSortChange: (mode: "traffic" | "connections") => void;
+  onViewAll?: () => void;
 }
 
 function getFaviconUrl(domain: string): string {
@@ -25,6 +26,7 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
   domains,
   sortBy,
   onSortChange,
+  onViewAll,
 }: TopDomainsSimpleProps) {
   const t = useTranslations("topDomains");
 
@@ -141,13 +143,13 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
               </div>
 
               {/* Stats */}
-              <div className="pl-12 mt-1">
+              <div className="pl-7 mt-1">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(domain.totalDownload)}</span>
                   <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(domain.totalUpload)}</span>
                   <span className="flex items-center gap-1 tabular-nums">
                     <Link2 className="w-3 h-3" />
-                    {domain.totalConnections}
+                    {formatNumber(domain.totalConnections)}
                   </span>
                 </div>
               </div>
@@ -158,7 +160,7 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
 
       {/* Footer */}
       <div className="pt-2 border-t border-border/30">
-        <Button variant="ghost" size="sm" className="w-full h-9 text-xs">
+        <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
           {t("viewAll")}
           <ArrowRight className="w-3 h-3 ml-1" />
         </Button>

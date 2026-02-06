@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { DomainStats } from "@clashmaster/shared";
 
 interface DomainTopListProps {
@@ -119,7 +119,7 @@ export function DomainTopList({ data, limit = 7, onViewAll }: DomainTopListProps
             }
             title={domain.domain}
             subtitle={sortBy === "traffic" 
-              ? `${domain.totalConnections} ${t("connections")}` 
+              ? `${formatNumber(domain.totalConnections)} ${t("connections")}` 
               : `${formatBytes(domain.total)}`
             }
             value={sortBy === "traffic" ? domain.total : domain.totalConnections}

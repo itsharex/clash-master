@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Link2, ArrowDown, ArrowUp } from "lucide-react";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
 interface CountryTrafficListProps {
@@ -114,7 +114,7 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
               {/* Connections */}
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Link2 className="w-3 h-3" />
-                <span>{country.totalConnections.toLocaleString()}</span>
+                <span>{formatNumber(country.totalConnections)}</span>
               </div>
             </div>
           </div>

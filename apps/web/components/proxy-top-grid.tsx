@@ -5,7 +5,7 @@ import { Server, Link2, ArrowUpDown, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, formatNumber } from "@/lib/utils";
 import type { ProxyStats } from "@clashmaster/shared";
 
 interface ProxyTopGridProps {
@@ -126,7 +126,7 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
                 </span>
                 <span className="text-muted-foreground flex items-center gap-1">
                   <Link2 className="w-3 h-3" />
-                  {proxy.totalConnections}
+                  {formatNumber(proxy.totalConnections)}
                 </span>
               </div>
 
