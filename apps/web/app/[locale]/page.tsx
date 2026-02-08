@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useCallback, useRef, memo, useMemo } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { useTheme } from "next-themes";
 import {
@@ -12,8 +12,8 @@ import {
   RefreshCw,
   Radio,
   ChevronDown,
-  Pause,
   Settings,
+  AlertTriangle,
   Moon,
   Sun,
   Monitor,
@@ -28,6 +28,7 @@ import { OverviewTab } from "@/components/overview";
 import { TopDomainsChart } from "@/components/top-domains-chart";
 import { ProxyStatsChart } from "@/components/proxy-stats-chart";
 import { InteractiveProxyStats } from "@/components/interactive-proxy-stats";
+import { InteractiveDeviceStats } from "@/components/interactive-device-stats";
 import { InteractiveRuleStats } from "@/components/interactive-rule-stats";
 import { RuleChainChart } from "@/components/rule-chain-chart";
 import { WorldTrafficMap } from "@/components/world-traffic-map";
@@ -38,6 +39,7 @@ import { BackendConfigDialog } from "@/components/backend-config-dialog";
 import { AboutDialog } from "@/components/about-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { TimeRangePicker } from "@/components/time-range-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -52,13 +54,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   api,
   getPresetTimeRange,
   type TimeRange,
   type Backend,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { StatsSummary, CountryStats } from "@clashmaster/shared";
+import type { StatsSummary, CountryStats, DeviceStats } from "@clashmaster/shared";
 
 function formatTimeAgo(date: Date, t: any): string {
   const now = new Date();
@@ -77,33 +85,51 @@ const NAV_ITEMS = [
   { id: "overview", label: "overview" },
   { id: "domains", label: "domains" },
   { id: "countries", label: "countries" },
+  { id: "devices", label: "devices" },
   { id: "proxies", label: "proxies" },
   { id: "rules", label: "rules" },
 ];
+
+type TimePreset = "1m" | "5m" | "15m" | "30m" | "24h" | "7d" | "30d" | "today" | "custom";
+type RollingTimePreset = Exclude<TimePreset, "custom">;
+type BackendStatus = "healthy" | "unhealthy" | "unknown";
+
+function isRollingTimePreset(preset: TimePreset): preset is RollingTimePreset {
+  return preset !== "custom";
+}
 
 // Memoized tab content components to prevent unnecessary re-renders
 const OverviewContent = memo(function OverviewContent({
   data,
   countryData,
   error,
+  timeRange,
+  timePreset,
   activeBackendId,
   onNavigate,
+  backendStatus,
 }: {
   data: StatsSummary | null;
   countryData: CountryStats[];
   error: string | null;
+  timeRange: TimeRange;
+  timePreset: TimePreset;
   activeBackendId?: number;
   onNavigate?: (tab: string) => void;
+  backendStatus: BackendStatus;
 }) {
   return (
     <div className="space-y-6">
-      <StatsCards data={data} error={error} />
+      <StatsCards data={data} error={error} backendStatus={backendStatus} />
       <OverviewTab
         domains={data?.topDomains || []}
         proxies={data?.proxyStats || []}
         countries={countryData}
+        timeRange={timeRange}
+        timePreset={timePreset}
         activeBackendId={activeBackendId}
         onNavigate={onNavigate}
+        backendStatus={backendStatus}
       />
     </div>
   );
@@ -112,24 +138,26 @@ const OverviewContent = memo(function OverviewContent({
 const DomainsContent = memo(function DomainsContent({
   data,
   activeBackendId,
+  timeRange,
 }: {
   data: StatsSummary | null;
   activeBackendId?: number;
+  timeRange: TimeRange;
 }) {
   const t = useTranslations("domains");
   return (
     <div className="space-y-6">
-      <TopDomainsChart activeBackendId={activeBackendId} />
+      <TopDomainsChart activeBackendId={activeBackendId} timeRange={timeRange} />
       <Tabs defaultValue="domains" className="w-full">
         <TabsList className="glass">
           <TabsTrigger value="domains">{t("domainList")}</TabsTrigger>
           <TabsTrigger value="ips">{t("ipList")}</TabsTrigger>
         </TabsList>
         <TabsContent value="domains" className="overflow-hidden">
-          <DomainsTable activeBackendId={activeBackendId} />
+          <DomainsTable activeBackendId={activeBackendId} timeRange={timeRange} />
         </TabsContent>
         <TabsContent value="ips" className="overflow-hidden">
-          <IPsTable activeBackendId={activeBackendId} />
+          <IPsTable activeBackendId={activeBackendId} timeRange={timeRange} />
         </TabsContent>
       </Tabs>
     </div>
@@ -162,15 +190,21 @@ const CountriesContent = memo(function CountriesContent({
 const ProxiesContent = memo(function ProxiesContent({
   data,
   activeBackendId,
+  timeRange,
+  backendStatus,
 }: {
   data: StatsSummary | null;
   activeBackendId?: number;
+  timeRange: TimeRange;
+  backendStatus: BackendStatus;
 }) {
   return (
     <div className="space-y-6">
       <InteractiveProxyStats
         data={data?.proxyStats || []}
         activeBackendId={activeBackendId}
+        timeRange={timeRange}
+        backendStatus={backendStatus}
       />
     </div>
   );
@@ -179,15 +213,89 @@ const ProxiesContent = memo(function ProxiesContent({
 const RulesContent = memo(function RulesContent({
   data,
   activeBackendId,
+  timeRange,
+  backendStatus,
 }: {
   data: StatsSummary | null;
   activeBackendId?: number;
+  timeRange: TimeRange;
+  backendStatus: BackendStatus;
 }) {
   return (
     <div className="space-y-6">
       <InteractiveRuleStats
         data={data?.ruleStats || []}
         activeBackendId={activeBackendId}
+        timeRange={timeRange}
+        backendStatus={backendStatus}
+      />
+    </div>
+  );
+});
+
+const DevicesContent = memo(function DevicesContent({
+  activeBackendId,
+  timeRange,
+  backendStatus,
+}: {
+  activeBackendId?: number;
+  timeRange: TimeRange;
+  backendStatus: BackendStatus;
+}) {
+  const [deviceStats, setDeviceStats] = useState<DeviceStats[]>([]);
+  const [loading, setLoading] = useState(true);
+  const requestIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchDevices = async () => {
+      const requestId = ++requestIdRef.current;
+      const shouldShowLoading = !hasLoadedRef.current;
+      if (shouldShowLoading) {
+        setLoading(true);
+      }
+
+      try {
+        const data = await api.getDevices(activeBackendId, 50, timeRange);
+        if (cancelled || requestId !== requestIdRef.current) return;
+        setDeviceStats(data);
+        hasLoadedRef.current = true;
+      } catch (err) {
+        if (cancelled || requestId !== requestIdRef.current) return;
+        console.error("Failed to fetch device stats:", err);
+        if (!hasLoadedRef.current) {
+          setDeviceStats([]);
+        }
+      } finally {
+        if (shouldShowLoading && !cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchDevices();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBackendId, timeRange]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <InteractiveDeviceStats
+        data={deviceStats}
+        activeBackendId={activeBackendId}
+        timeRange={timeRange}
+        backendStatus={backendStatus}
       />
     </div>
   );
@@ -217,7 +325,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<StatsSummary | null>(null);
   const [countryData, setCountryData] = useState<CountryStats[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [timeRange] = useState<TimeRange>(getPresetTimeRange("24h"));
+  const [timeRange, setTimeRange] = useState<TimeRange>(getPresetTimeRange("24h"));
+  const [timePreset, setTimePreset] = useState<TimePreset>("24h");
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [isLoading, setIsLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -229,6 +338,19 @@ export default function DashboardPage() {
   const [listeningBackends, setListeningBackends] = useState<Backend[]>([]);
   const initialLoaded = useRef(false);
   const lastDataRef = useRef<string>("");
+
+  const backendStatus: BackendStatus = useMemo(() => {
+    if (!activeBackend) return "unknown";
+    if (error) return "unhealthy";
+    if (activeBackend.listening) return "healthy";
+    return "unhealthy";
+  }, [activeBackend, error]);
+
+  const backendStatusHint = useMemo(() => {
+    if (error) return error;
+    if (activeBackend && !activeBackend.listening) return dashboardT("backendUnavailableHint");
+    return null;
+  }, [error, activeBackend, dashboardT]);
 
   // Check if backend is configured
   const checkBackend = useCallback(async () => {
@@ -255,10 +377,12 @@ export default function DashboardPage() {
 
   // Load stats with deduplication
   const loadStats = useCallback(
-    async (showLoading = false) => {
+    async (showLoading = false, rangeOverride?: TimeRange) => {
       if (showLoading) setIsLoading(true);
 
       try {
+        const queryRange = rangeOverride ?? timeRange;
+
         // Get active backend ID if available
         const activeBackendData = await api.getActiveBackend();
 
@@ -267,19 +391,22 @@ export default function DashboardPage() {
           setData(null);
           setCountryData([]);
           setError(null);
+          lastDataRef.current = "";
           return;
         }
 
         const backendId = activeBackendData.id;
-
         const [stats, countries] = await Promise.all([
-          api.getSummary(backendId, timeRange),
-          api.getCountries(backendId, 50, timeRange),
+          api.getSummary(backendId, queryRange),
+          api.getCountries(backendId, 50, queryRange),
         ]);
 
-        // Always update data on successful fetch
-        setData(stats);
-        setCountryData(countries);
+        const nextSignature = JSON.stringify({ stats, countries });
+        if (nextSignature !== lastDataRef.current) {
+          lastDataRef.current = nextSignature;
+          setData(stats);
+          setCountryData(countries);
+        }
         setLastUpdated(new Date());
         setError(null);
       } catch (err) {
@@ -291,12 +418,36 @@ export default function DashboardPage() {
     [timeRange],
   );
 
+  const refreshNow = useCallback(
+    async (showLoading = false) => {
+      if (isRollingTimePreset(timePreset)) {
+        const latestRange = getPresetTimeRange(timePreset);
+        setTimeRange(latestRange);
+        await loadStats(showLoading, latestRange);
+        return;
+      }
+      await loadStats(showLoading);
+    },
+    [timePreset, loadStats],
+  );
+
+  const handleTimeRangeChange = useCallback(
+    (range: TimeRange, preset: TimePreset) => {
+      setTimePreset(preset);
+      setTimeRange(range);
+      if (initialLoaded.current) {
+        loadStats(true, range);
+      }
+    },
+    [loadStats],
+  );
+
   // Switch active backend
   const handleSwitchBackend = async (backendId: number) => {
     try {
       await api.setActiveBackend(backendId);
       await checkBackend();
-      await loadStats(true);
+      await refreshNow(true);
     } catch (err) {
       console.error("Failed to switch backend:", err);
     }
@@ -305,8 +456,8 @@ export default function DashboardPage() {
   // Handle backend configuration changes
   const handleBackendChange = useCallback(async () => {
     await checkBackend();
-    await loadStats(true);
-  }, [checkBackend, loadStats]);
+    await refreshNow(true);
+  }, [checkBackend, refreshNow]);
 
   // Initial load
   useEffect(() => {
@@ -322,10 +473,16 @@ export default function DashboardPage() {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
+      if (isRollingTimePreset(timePreset)) {
+        const latestRange = getPresetTimeRange(timePreset);
+        setTimeRange(latestRange);
+        loadStats(false, latestRange);
+        return;
+      }
       loadStats(false);
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadStats, autoRefresh]);
+  }, [loadStats, autoRefresh, timePreset]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -335,20 +492,43 @@ export default function DashboardPage() {
             data={data}
             countryData={countryData}
             error={error}
+            timeRange={timeRange}
+            timePreset={timePreset}
             activeBackendId={activeBackend?.id}
             onNavigate={setActiveTab}
+            backendStatus={backendStatus}
           />
         );
       case "domains":
-        return <DomainsContent data={data} activeBackendId={activeBackend?.id} />;
+        return <DomainsContent data={data} activeBackendId={activeBackend?.id} timeRange={timeRange} />;
       case "countries":
         return <CountriesContent countryData={countryData} />;
       case "proxies":
         return (
-          <ProxiesContent data={data} activeBackendId={activeBackend?.id} />
+          <ProxiesContent
+            data={data}
+            activeBackendId={activeBackend?.id}
+            timeRange={timeRange}
+            backendStatus={backendStatus}
+          />
         );
       case "rules":
-        return <RulesContent data={data} activeBackendId={activeBackend?.id} />;
+        return (
+          <RulesContent
+            data={data}
+            activeBackendId={activeBackend?.id}
+            timeRange={timeRange}
+            backendStatus={backendStatus}
+          />
+        );
+      case "devices":
+        return (
+          <DevicesContent
+            activeBackendId={activeBackend?.id}
+            timeRange={timeRange}
+            backendStatus={backendStatus}
+          />
+        );
       case "network":
         return <NetworkContent />;
       default:
@@ -357,8 +537,11 @@ export default function DashboardPage() {
             data={data}
             countryData={countryData}
             error={error}
+            timeRange={timeRange}
+            timePreset={timePreset}
             activeBackendId={activeBackend?.id}
             onNavigate={setActiveTab}
+            backendStatus={backendStatus}
           />
         );
     }
@@ -370,6 +553,7 @@ export default function DashboardPage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onBackendChange={handleBackendChange}
+        backendStatus={backendStatus}
       />
 
       <main className="flex-1 min-w-0 lg:ml-0">
@@ -475,37 +659,54 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Desktop: Auto refresh toggle */}
-              <div className="hidden sm:flex items-center gap-2 mr-2">
-                <Switch
-                  id="auto-refresh"
-                  checked={autoRefresh}
-                  onCheckedChange={setAutoRefresh}
-                  className="data-[state=checked]:bg-emerald-500"
-                />
-                <label
-                  htmlFor="auto-refresh"
-                  className="text-sm text-muted-foreground cursor-pointer select-none flex items-center gap-1.5">
-                  {autoRefresh ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="text-emerald-600">
-                        {dashboardT("autoRefresh")}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-3.5 h-3.5" />
-                      <span>{dashboardT("paused")}</span>
-                    </>
-                  )}
-                </label>
+              {/* Desktop: Compact auto-refresh toggle */}
+              <div className="hidden sm:flex items-center mr-1">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setAutoRefresh((prev) => !prev)}
+                        aria-label={autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}
+                        className={cn(
+                          "h-9 w-9 rounded-full transition-colors",
+                          autoRefresh
+                            ? "text-emerald-600 hover:bg-emerald-500/10"
+                            : "text-muted-foreground hover:bg-muted",
+                        )}>
+                        <RefreshCw className={cn("w-4 h-4", autoRefresh && "text-emerald-500")} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="font-medium">
+                        {autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}
+                      </p>
+                      <p className="opacity-80">
+                        {autoRefresh ? dashboardT("clickToPause") : dashboardT("clickToResume")}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
 
               {/* Desktop: Language & Theme */}
               <div className="hidden sm:flex items-center gap-1">
+                <TimeRangePicker
+                  value={timeRange}
+                  onChange={handleTimeRangeChange}
+                />
                 <LanguageSwitcher />
                 <ThemeToggle />
+              </div>
+
+              {/* Mobile: Time range picker */}
+              <div className="sm:hidden">
+                <TimeRangePicker
+                  value={timeRange}
+                  onChange={handleTimeRangeChange}
+                  className="w-[122px]"
+                />
               </div>
 
               {/* Mobile: More Options Dropdown */}
@@ -522,10 +723,19 @@ export default function DashboardPage() {
                       <RefreshCw className="w-4 h-4" />
                       {dashboardT("refresh")}
                     </DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => setAutoRefresh(!autoRefresh)}>
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setAutoRefresh((prev) => !prev);
+                      }}>
                       <div className="flex items-center justify-between w-full">
                         <span>{autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}</span>
-                        <Switch checked={autoRefresh} className="data-[state=checked]:bg-emerald-500 ml-2" />
+                        <Switch
+                          checked={autoRefresh}
+                          onCheckedChange={setAutoRefresh}
+                          onClick={(event) => event.stopPropagation()}
+                          className="data-[state=checked]:bg-emerald-500 ml-2"
+                        />
                       </div>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -608,7 +818,7 @@ export default function DashboardPage() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => loadStats(true)}
+                onClick={() => refreshNow(true)}
                 disabled={isLoading}
                 className="h-9 w-9">
                 <RefreshCw
@@ -620,6 +830,21 @@ export default function DashboardPage() {
         </header>
 
         <div className="p-4 lg:p-6 pb-24 lg:pb-6 max-w-7xl mx-auto">
+          {backendStatus === "unhealthy" && (
+            <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/5 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
+                    {dashboardT("backendUnavailable")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {backendStatusHint || dashboardT("backendUnavailableHint")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {renderContent()}
         </div>
       </main>

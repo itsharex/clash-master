@@ -9,6 +9,7 @@ import type {
   DailyStats,
   TrafficTrendPoint,
   ProxyTrafficStats,
+  DeviceStats,
 } from "@clashmaster/shared";
 
 type RuntimeConfig = {
@@ -39,6 +40,7 @@ function resolveApiBase(): string {
 }
 
 const API_BASE = resolveApiBase();
+const DETAIL_FETCH_LIMIT = 5000;
 
 async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = {
@@ -147,6 +149,7 @@ export const api = {
   getDomains: (backendId?: number, opts?: {
     offset?: number; limit?: number;
     sortBy?: string; sortOrder?: string; search?: string;
+    start?: string; end?: string;
   }) =>
     fetchJson<{ data: DomainStats[]; total: number }>(
       buildUrl(`${API_BASE}/stats/domains`, { backendId, ...opts })
@@ -155,6 +158,7 @@ export const api = {
   getIPs: (backendId?: number, opts?: {
     offset?: number; limit?: number;
     sortBy?: string; sortOrder?: string; search?: string;
+    start?: string; end?: string;
   }) =>
     fetchJson<{ data: IPStats[]; total: number }>(
       buildUrl(`${API_BASE}/stats/ips`, { backendId, ...opts })
@@ -200,18 +204,22 @@ export const api = {
   getDaily: (backendId?: number, days = 7) =>
     fetchJson<DailyStats[]>(buildUrl(`${API_BASE}/stats/daily`, { backendId, days })),
     
-  getTrafficTrend: (backendId?: number, minutes = 30) =>
+  getTrafficTrend: (backendId?: number, minutes = 30, range?: TimeRange) =>
     fetchJson<TrafficTrendPoint[]>(buildUrl(`${API_BASE}/stats/trend`, {
       backendId,
       minutes,
+      start: range?.start,
+      end: range?.end,
     })),
 
-  getTrafficTrendAggregated: (backendId?: number, minutes = 30, bucketMinutes = 1) =>
+  getTrafficTrendAggregated: (backendId?: number, minutes = 30, bucketMinutes = 1, range?: TimeRange) =>
     fetchJson<TrafficTrendPoint[]>(
       buildUrl(`${API_BASE}/stats/trend/aggregated`, {
         backendId,
         minutes,
         bucketMinutes,
+        start: range?.start,
+        end: range?.end,
       })
     ),
     
@@ -220,54 +228,130 @@ export const api = {
       buildUrl(`${API_BASE}/stats/connections`, { backendId, limit })
     ),
     
-  getDomainProxyStats: (domain: string, backendId?: number) =>
+  getDomainProxyStats: (domain: string, backendId?: number, range?: TimeRange) =>
     fetchJson<ProxyTrafficStats[]>(
-      buildUrl(`${API_BASE}/stats/domains/proxy-stats`, { domain, backendId })
+      buildUrl(`${API_BASE}/stats/domains/proxy-stats`, {
+        domain,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getDomainIPDetails: (domain: string, backendId?: number) =>
+  getDomainIPDetails: (domain: string, backendId?: number, range?: TimeRange) =>
     fetchJson<IPStats[]>(
-      buildUrl(`${API_BASE}/stats/domains/ip-details`, { domain, backendId })
+      buildUrl(`${API_BASE}/stats/domains/ip-details`, {
+        domain,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getIPProxyStats: (ip: string, backendId?: number) =>
+  getIPProxyStats: (ip: string, backendId?: number, range?: TimeRange) =>
     fetchJson<ProxyTrafficStats[]>(
-      buildUrl(`${API_BASE}/stats/ips/proxy-stats`, { ip, backendId })
+      buildUrl(`${API_BASE}/stats/ips/proxy-stats`, {
+        ip,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getProxyDomains: (chain: string, backendId?: number) =>
+  getProxyDomains: (chain: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
     fetchJson<DomainStats[]>(
-      buildUrl(`${API_BASE}/stats/proxies/domains`, { chain, backendId })
+      buildUrl(`${API_BASE}/stats/proxies/domains`, {
+        chain,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getProxyIPs: (chain: string, backendId?: number) =>
+  getProxyIPs: (chain: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
     fetchJson<IPStats[]>(
-      buildUrl(`${API_BASE}/stats/proxies/ips`, { chain, backendId })
+      buildUrl(`${API_BASE}/stats/proxies/ips`, {
+        chain,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getRuleDomains: (rule: string, backendId?: number) =>
+  // Device stats APIs
+  getDevices: (backendId?: number, limit = 50, range?: TimeRange) =>
+    fetchJson<DeviceStats[]>(
+      buildUrl(`${API_BASE}/stats/devices`, { backendId, limit, start: range?.start, end: range?.end })
+    ),
+
+  getDeviceDomains: (sourceIP: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
     fetchJson<DomainStats[]>(
-      buildUrl(`${API_BASE}/stats/rules/domains`, { rule, backendId })
+      buildUrl(`${API_BASE}/stats/devices/domains`, {
+        sourceIP,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getRuleIPs: (rule: string, backendId?: number) =>
+  getDeviceIPs: (sourceIP: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
     fetchJson<IPStats[]>(
-      buildUrl(`${API_BASE}/stats/rules/ips`, { rule, backendId })
+      buildUrl(`${API_BASE}/stats/devices/ips`, {
+        sourceIP,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getRuleChainFlow: (rule: string, backendId?: number) =>
+  getRuleDomains: (rule: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
+    fetchJson<DomainStats[]>(
+      buildUrl(`${API_BASE}/stats/rules/domains`, {
+        rule,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
+    ),
+
+  getRuleIPs: (rule: string, backendId?: number, range?: TimeRange, limit = DETAIL_FETCH_LIMIT) =>
+    fetchJson<IPStats[]>(
+      buildUrl(`${API_BASE}/stats/rules/ips`, {
+        rule,
+        limit,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
+    ),
+
+  getRuleChainFlow: (rule: string, backendId?: number, range?: TimeRange) =>
     fetchJson<{ nodes: Array<{ name: string; totalUpload: number; totalDownload: number; totalConnections: number }>; links: Array<{ source: number; target: number }> }>(
-      buildUrl(`${API_BASE}/stats/rules/chain-flow`, { rule, backendId })
+      buildUrl(`${API_BASE}/stats/rules/chain-flow`, {
+        rule,
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
-  getAllRuleChainFlows: (backendId?: number) =>
+  getAllRuleChainFlows: (backendId?: number, range?: TimeRange) =>
     fetchJson<{
       nodes: Array<{ name: string; layer: number; nodeType: 'rule' | 'group' | 'proxy'; totalUpload: number; totalDownload: number; totalConnections: number; rules: string[] }>;
       links: Array<{ source: number; target: number; rules: string[] }>;
       rulePaths: Record<string, { nodeIndices: number[]; linkIndices: number[] }>;
       maxLayer: number;
     }>(
-      buildUrl(`${API_BASE}/stats/rules/chain-flow-all`, { backendId })
+      buildUrl(`${API_BASE}/stats/rules/chain-flow-all`, {
+        backendId,
+        start: range?.start,
+        end: range?.end,
+      })
     ),
 
   getClashProviders: (backendId?: number) =>
@@ -333,11 +417,25 @@ export const api = {
 };
 
 // Helper functions for time range
-export function getPresetTimeRange(preset: '7d' | '30d' | '24h' | 'today'): TimeRange {
+export function getPresetTimeRange(
+  preset: "1m" | "5m" | "15m" | "30m" | "7d" | "30d" | "24h" | "today",
+): TimeRange {
   const end = new Date();
   const start = new Date();
   
   switch (preset) {
+    case "1m":
+      start.setMinutes(start.getMinutes() - 1);
+      break;
+    case "5m":
+      start.setMinutes(start.getMinutes() - 5);
+      break;
+    case "15m":
+      start.setMinutes(start.getMinutes() - 15);
+      break;
+    case "30m":
+      start.setMinutes(start.getMinutes() - 30);
+      break;
     case '7d':
       start.setDate(start.getDate() - 7);
       break;

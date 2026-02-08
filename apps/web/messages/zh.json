@@ -7,6 +7,7 @@
     "overview": "概览",
     "domains": "域名",
     "countries": "地区",
+    "devices": "设备",
     "proxies": "代理",
     "rules": "规则",
     "network": "网络",
@@ -35,7 +36,36 @@
     "hoursAgo": "{hours}小时前",
     "daysAgo": "{days}天前",
     "autoRefresh": "自动刷新",
-    "paused": "已暂停"
+    "paused": "已暂停",
+    "clickToPause": "点击暂停自动刷新",
+    "clickToResume": "点击恢复自动刷新",
+    "backendHealthy": "后端运行正常",
+    "backendUnavailable": "后端连接异常",
+    "backendUnavailableHint": "数据采集中断，请检查后端联通状态。",
+    "backendStatusUnknown": "后端状态未知"
+  },
+  "timeRangePicker": {
+    "quickRange": "快捷范围",
+    "customRange": "自定义时间",
+    "customShort": "自定义",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "time": "时间",
+    "applyCustom": "应用自定义",
+    "pickDate": "选择日期",
+    "recentPrefix": "最近",
+    "today": "今天",
+    "defaultRange": "最近 24h",
+    "preset": {
+      "1m": "1m",
+      "5m": "5m",
+      "15m": "15m",
+      "30m": "30m",
+      "24h": "24h",
+      "7d": "7d",
+      "30d": "30d",
+      "today": "今天"
+    }
   },
   "stats": {
     "totalDownload": "总下载量",
@@ -50,9 +80,20 @@
     "domains": "域名数",
     "rules": "规则数",
     "today": "今日流量",
+    "rangeInsight": "范围洞察",
+    "comparePrevRange": "环比上一等长区间",
+    "downloadDelta": "下载环比",
+    "uploadDelta": "上传环比",
+    "connectionsDelta": "连接环比",
+    "peakRate": "峰值流量",
+    "peakDownload": "下载峰值",
+    "peakUpload": "上传峰值",
+    "perMin": "分钟",
+    "perDay": "天",
     "download": "下载",
     "upload": "上传",
-    "tracked": "已追踪"
+    "tracked": "已追踪",
+    "unavailable": "等待后端恢复"
   },
   "chart": {
     "trafficHistory": "流量趋势 (24小时)",
@@ -68,6 +109,7 @@
     "totalUpload": "总上传",
     "total": "总计",
     "noData": "暂无数据",
+    "noDataHint": "可尝试切换更短时间范围，或等待新流量数据。",
     "loading": "加载中..."
   },
   "topDomains": {
@@ -75,19 +117,25 @@
     "sortByTraffic": "按流量排序",
     "sortByConnections": "按连接数排序",
     "viewAll": "查看全部",
-    "connections": "连接"
+    "connections": "连接",
+    "noData": "暂无域名流量",
+    "noDataHint": "开始采集后，这里会显示域名流量。"
   },
   "topProxies": {
     "title": "Top 代理",
     "sortByTraffic": "按流量排序",
     "sortByConnections": "按连接数排序",
-    "viewAll": "查看全部"
+    "viewAll": "查看全部",
+    "noData": "暂无代理流量",
+    "noDataHint": "开始采集后，这里会显示代理流量。"
   },
   "topCountries": {
     "title": "热门地区",
     "viewAll": "查看全部",
     "sortByTraffic": "按流量排序",
-    "sortByConnections": "按连接排序"
+    "sortByConnections": "按连接排序",
+    "noData": "暂无地区流量",
+    "noDataHint": "开始采集后，这里会显示地区流量。"
   },
   "domains": {
     "title": "热门域名",
@@ -97,6 +145,8 @@
     "associatedIPs": "关联 IP 地址",
     "search": "搜索域名...",
     "noResults": "未找到域名",
+    "noData": "暂无域名数据",
+    "noDataHint": "开始采集后，这里会显示域名流量数据。",
     "connections": "连接",
     "lastSeen": "最后访问",
     "topDomainsByTraffic": "按流量排序的热门域名",
@@ -123,6 +173,8 @@
     "topIPsByTraffic": "按流量排序的热门 IP",
     "search": "搜索 IP...",
     "noResults": "未找到 IP",
+    "noData": "暂无 IP 数据",
+    "noDataHint": "开始采集后，这里会显示 IP 流量数据。",
     "ip": "IP 地址",
     "ipAddress": "IP 地址",
     "ipList": "IP 地址",
@@ -163,7 +215,18 @@
     "sortByTraffic": "流量",
     "sortByConnections": "连接",
     "noData": "暂无数据",
+    "noDataHint": "开始采集后，这里会显示代理流量明细。",
     "viewAll": "返回全部节点"
+  },
+  "devices": {
+    "title": "设备",
+    "distribution": "设备流量分布",
+    "noData": "暂无设备数据",
+    "noDataHint": "开始采集后，这里会显示设备流量明细。",
+    "connections": "连接",
+    "total": "总计",
+    "download": "下载",
+    "upload": "上传"
   },
   "rules": {
     "title": "规则",
@@ -173,6 +236,7 @@
     "description": "按匹配规则和最终代理节点的流量分布",
     "connections": "连接",
     "noData": "暂无数据",
+    "noDataHint": "开始采集后，这里会显示规则流量明细。",
     "total": "总计",
     "download": "下载",
     "upload": "上传",

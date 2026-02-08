@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { MapPin } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { CountryFlag } from "@/components/country-flag";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
@@ -14,23 +15,11 @@ interface CountryTopListProps {
   onViewAll?: () => void;
 }
 
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "🇺🇸", CN: "🇨🇳", JP: "🇯🇵", SG: "🇸🇬", HK: "🇭🇰",
-  TW: "🇹🇼", KR: "🇰🇷", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷",
-  NL: "🇳🇱", CA: "🇨🇦", AU: "🇦🇺", IN: "🇮🇳", BR: "🇧🇷",
-  RU: "🇷🇺", SE: "🇸🇪", CH: "🇨🇭", IL: "🇮🇱", ID: "🇮🇩",
-  LOCAL: "🏠",
-};
-
 const CONTINENT_COLORS: Record<string, string> = {
   AS: "#F59E0B", NA: "#3B82F6", EU: "#8B5CF6",
   SA: "#10B981", AF: "#EF4444", OC: "#06B6D4",
   LOCAL: "#6B7280",
 };
-
-function getFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS[country.toUpperCase()] || "🌐";
-}
 
 function getContinentColor(continent: string): string {
   return CONTINENT_COLORS[continent] || "#6B7280";
@@ -48,7 +37,6 @@ export function CountryTopList({ data, limit = 7, onViewAll }: CountryTopListPro
       .map(c => ({
         ...c,
         total: c.totalDownload + c.totalUpload,
-        flag: getFlag(c.country),
         color: getContinentColor(c.continent),
       }));
     const total = list.reduce((sum, c) => sum + c.total, 0);
@@ -82,7 +70,7 @@ export function CountryTopList({ data, limit = 7, onViewAll }: CountryTopListPro
           <TopListItem
             key={country.country}
             rank={index + 1}
-            icon={<span className="text-xl">{country.flag}</span>}
+            icon={<CountryFlag country={country.country} className="h-4 w-6" />}
             title={country.countryName || country.country}
             subtitle={country.continent}
             value={country.total}

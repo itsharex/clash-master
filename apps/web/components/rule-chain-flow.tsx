@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { useTheme } from "next-themes";
-import { api } from "@/lib/api";
+import { api, type TimeRange } from "@/lib/api";
 import { resolveActiveChains, type ActiveChainInfo } from "@/lib/active-chain";
 import { useTranslations } from "next-intl";
 
@@ -48,6 +48,7 @@ interface AllChainFlowData {
 interface UnifiedRuleChainFlowProps {
   selectedRule: string | null;
   activeBackendId?: number;
+  timeRange?: TimeRange;
 }
 
 // ---------- Layout constants ----------
@@ -275,6 +276,78 @@ function computeStructureKey(data: AllChainFlowData): string {
   const nodeNames = data.nodes.map((n) => n.name).join("|");
   const linkKeys = data.links.map((l) => `${l.source}-${l.target}`).join("|");
   return `${nodeNames}::${linkKeys}`;
+}
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function areRulePathsEqual(
+  a: Record<string, { nodeIndices: number[]; linkIndices: number[] }>,
+  b: Record<string, { nodeIndices: number[]; linkIndices: number[] }>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  aKeys.sort();
+  bKeys.sort();
+  if (!areStringArraysEqual(aKeys, bKeys)) return false;
+
+  for (const key of aKeys) {
+    const aPath = a[key];
+    const bPath = b[key];
+    if (!bPath) return false;
+    if (aPath.nodeIndices.length !== bPath.nodeIndices.length) return false;
+    if (aPath.linkIndices.length !== bPath.linkIndices.length) return false;
+    for (let i = 0; i < aPath.nodeIndices.length; i++) {
+      if (aPath.nodeIndices[i] !== bPath.nodeIndices[i]) return false;
+    }
+    for (let i = 0; i < aPath.linkIndices.length; i++) {
+      if (aPath.linkIndices[i] !== bPath.linkIndices[i]) return false;
+    }
+  }
+  return true;
+}
+
+function areChainFlowDataEqual(a: AllChainFlowData, b: AllChainFlowData): boolean {
+  if (a.maxLayer !== b.maxLayer) return false;
+  if (a.nodes.length !== b.nodes.length || a.links.length !== b.links.length) {
+    return false;
+  }
+
+  for (let i = 0; i < a.nodes.length; i++) {
+    const an = a.nodes[i];
+    const bn = b.nodes[i];
+    if (
+      an.name !== bn.name ||
+      an.layer !== bn.layer ||
+      an.nodeType !== bn.nodeType ||
+      an.totalUpload !== bn.totalUpload ||
+      an.totalDownload !== bn.totalDownload ||
+      an.totalConnections !== bn.totalConnections ||
+      !areStringArraysEqual(an.rules, bn.rules)
+    ) {
+      return false;
+    }
+  }
+
+  for (let i = 0; i < a.links.length; i++) {
+    const al = a.links[i];
+    const bl = b.links[i];
+    if (
+      al.source !== bl.source ||
+      al.target !== bl.target ||
+      !areStringArraysEqual(al.rules, bl.rules)
+    ) {
+      return false;
+    }
+  }
+
+  return areRulePathsEqual(a.rulePaths, b.rulePaths);
 }
 
 // ---------- Inner renderer (needs ReactFlowProvider context) ----------
@@ -551,6 +624,7 @@ function FlowRenderer({
 export function UnifiedRuleChainFlow({
   selectedRule,
   activeBackendId,
+  timeRange,
 }: UnifiedRuleChainFlowProps) {
   const t = useTranslations("rules");
   const [data, setData] = useState<AllChainFlowData | null>(null);
@@ -561,44 +635,53 @@ export function UnifiedRuleChainFlow({
   const [activeChainInfo, setActiveChainInfo] =
     useState<ActiveChainInfo | null>(null);
   const prevRuleRef = useRef(selectedRule);
+  const hasLoadedRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const prevBackendRef = useRef<number | undefined>(undefined);
 
-  // Initial fetch + background polling every 5 seconds
+  // Fetch on backend/time-range changes. Parent already drives 5s updates
+  // for rolling windows, so avoid an additional local polling loop.
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    async function initialLoad() {
+    const requestId = ++requestIdRef.current;
+    const backendChanged = prevBackendRef.current !== activeBackendId;
+    const shouldShowLoading = !hasLoadedRef.current || backendChanged;
+    if (shouldShowLoading) {
       setLoading(true);
-      setError(null);
+    }
+    setError(null);
+
+    async function loadFlows() {
       try {
-        const result = await api.getAllRuleChainFlows(activeBackendId);
-        if (cancelled) return;
-        setData(result);
-        setLoading(false);
-        // Start polling after successful initial load
-        interval = setInterval(async () => {
-          try {
-            const fresh = await api.getAllRuleChainFlows(activeBackendId);
-            if (!cancelled) setData(fresh);
-          } catch {
-            // Silent failure for background polls
+        const result = await api.getAllRuleChainFlows(activeBackendId, timeRange);
+        if (cancelled || requestId !== requestIdRef.current) return;
+        setData((prev) => {
+          if (prev && areChainFlowDataEqual(prev, result)) {
+            return prev;
           }
-        }, 5000);
+          return result;
+        });
+        hasLoadedRef.current = true;
+        prevBackendRef.current = activeBackendId;
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || requestId !== requestIdRef.current) return;
         console.error("Failed to load chain flows:", err);
-        setError("Failed to load chain flows");
-        setLoading(false);
+        if (!hasLoadedRef.current) {
+          setError("Failed to load chain flows");
+        }
+      } finally {
+        if (shouldShowLoading && !cancelled && requestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
     }
 
-    initialLoad();
+    loadFlows();
 
     return () => {
       cancelled = true;
-      if (interval) clearInterval(interval);
     };
-  }, [activeBackendId]);
+  }, [activeBackendId, timeRange]);
 
   // Fetch active chain info when activePolicyOnly is ON
   useEffect(() => {

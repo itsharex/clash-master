@@ -21,6 +21,8 @@ interface TrafficUpdate {
   rulePayload: string;
   upload: number;
   download: number;
+  sourceIP?: string;
+  timestampMs?: number;
 }
 
 interface GeoIPResult {
@@ -32,6 +34,12 @@ interface GeoIPResult {
   } | null;
   upload: number;
   download: number;
+  timestampMs?: number;
+}
+
+function toMinuteKey(timestampMs?: number): string {
+  const date = new Date(timestampMs ?? Date.now()).toISOString();
+  return `${date.slice(0, 16)}:00`;
 }
 
 export class OpenClashCollector {
@@ -141,12 +149,27 @@ class BatchBuffer {
   private logCounter = 0;
 
   add(backendId: number, update: TrafficUpdate) {
-    const key = `${backendId}:${update.domain}:${update.ip}:${update.chain}`;
+    const minuteKey = toMinuteKey(update.timestampMs);
+    const fullChain = update.chains.join(" > ");
+    const key = [
+      backendId,
+      minuteKey,
+      update.domain,
+      update.ip,
+      update.chain,
+      fullChain,
+      update.rule,
+      update.rulePayload,
+      update.sourceIP || "",
+    ].join(":");
     const existing = this.buffer.get(key);
 
     if (existing) {
       existing.upload += update.upload;
       existing.download += update.download;
+      if ((update.timestampMs ?? 0) > (existing.timestampMs ?? 0)) {
+        existing.timestampMs = update.timestampMs;
+      }
     } else {
       this.buffer.set(key, { ...update });
     }
@@ -156,18 +179,20 @@ class BatchBuffer {
     this.geoQueue.push(result);
   }
 
+  size(): number {
+    return this.buffer.size;
+  }
+
+  hasPending(): boolean {
+    return this.buffer.size > 0 || this.geoQueue.length > 0;
+  }
+
   flush(
     db: StatsDatabase,
-    geoService: GeoIPService | undefined,
+    _geoService: GeoIPService | undefined,
     backendId: number,
   ): { domains: number; rules: number; trafficOk: boolean; countryOk: boolean; hasUpdates: boolean } {
-    if (this.buffer.size === 0) {
-      return { domains: 0, rules: 0, trafficOk: true, countryOk: true, hasUpdates: false };
-    }
-
     const updates = Array.from(this.buffer.values());
-
-    // Merge geo queue
     const geoResults = [...this.geoQueue];
 
     // Calculate unique domains and rules for logging
@@ -183,14 +208,16 @@ class BatchBuffer {
       rules.add(initialRule);
     }
 
-    // Batch write to database
     let trafficOk = true;
     let countryOk = true;
-    try {
-      db.batchUpdateTrafficStats(backendId, updates);
-    } catch (err) {
-      trafficOk = false;
-      console.error(`[Collector:${backendId}] Batch write failed:`, err);
+
+    if (updates.length > 0) {
+      try {
+        db.batchUpdateTrafficStats(backendId, updates);
+      } catch (err) {
+        trafficOk = false;
+        console.error(`[Collector:${backendId}] Batch write failed:`, err);
+      }
     }
 
     if (trafficOk) {
@@ -210,6 +237,7 @@ class BatchBuffer {
             continent: r.geo.continent,
             upload: r.upload,
             download: r.download,
+            timestampMs: r.timestampMs,
           }));
         db.batchUpdateCountryStats(backendId, countryUpdates);
       } catch (err) {
@@ -227,7 +255,7 @@ class BatchBuffer {
       rules: rules.size,
       trafficOk,
       countryOk,
-      hasUpdates: updates.length > 0,
+      hasUpdates: updates.length > 0 || geoResults.length > 0,
     };
   }
 
@@ -257,6 +285,7 @@ interface TrackedConnection {
   lastDownload: number;
   totalUpload: number;
   totalDownload: number;
+  sourceIP?: string;
 }
 
 export function createCollector(
@@ -274,23 +303,40 @@ export function createCollector(
   const broadcastThrottleMs = 500;
   let flushInterval: NodeJS.Timeout | null = null;
   const FLUSH_INTERVAL_MS = parseInt(process.env.FLUSH_INTERVAL_MS || "30000");
+  const FLUSH_MAX_BUFFER_SIZE = parseInt(
+    process.env.FLUSH_MAX_BUFFER_SIZE || "5000",
+  );
+  let isFlushing = false;
+
+  const flushBatch = () => {
+    if (isFlushing || !batchBuffer.hasPending()) {
+      return;
+    }
+
+    isFlushing = true;
+    try {
+      const stats = batchBuffer.flush(db, geoService, id);
+
+      if (stats.trafficOk) {
+        realtimeStore.clearTraffic(id);
+      }
+      if (stats.countryOk) {
+        realtimeStore.clearCountries(id);
+      }
+
+      if (batchBuffer.shouldLog() && (stats.domains > 0 || stats.rules > 0)) {
+        console.log(
+          `[Collector:${id}] Active: ${activeConnections.size}, Domains: ${stats.domains}, Rules: ${stats.rules}`,
+        );
+      }
+    } finally {
+      isFlushing = false;
+    }
+  };
 
   // Start batch flush interval
   flushInterval = setInterval(() => {
-    const stats = batchBuffer.flush(db, geoService, id);
-
-    if (stats.trafficOk) {
-      realtimeStore.clearTraffic(id);
-    }
-    if (stats.countryOk) {
-      realtimeStore.clearCountries(id);
-    }
-
-    if (batchBuffer.shouldLog() && (stats.domains > 0 || stats.rules > 0)) {
-      console.log(
-        `[Collector:${id}] Active: ${activeConnections.size}, Domains: ${stats.domains}, Rules: ${stats.rules}`,
-      );
-    }
+    flushBatch();
   }, FLUSH_INTERVAL_MS);
 
   const collector = new OpenClashCollector(id, {
@@ -338,6 +384,7 @@ export function createCollector(
         const metadata = conn.metadata || {};
         const domain = metadata.host || metadata.sniffHost || "";
         const ip = metadata.destinationIP || "";
+        const sourceIP = metadata.sourceIP || "";
         const chains = Array.isArray(conn.chains) ? conn.chains : ["DIRECT"];
         const rule = conn.rule || "Match";
         const rulePayload = conn.rulePayload || "";
@@ -357,6 +404,7 @@ export function createCollector(
             lastDownload: conn.download,
             totalUpload: conn.upload,
             totalDownload: conn.download,
+            sourceIP,
           });
 
           // Record initial traffic for new connection (add to batch buffer)
@@ -370,6 +418,8 @@ export function createCollector(
               rulePayload,
               upload: conn.upload,
               download: conn.download,
+              sourceIP,
+              timestampMs: now,
             });
             realtimeStore.recordTraffic(
               id,
@@ -397,6 +447,7 @@ export function createCollector(
                       geo,
                       upload: conn.upload,
                       download: conn.download,
+                      timestampMs: now,
                     });
                     realtimeStore.recordCountryTraffic(
                       id,
@@ -438,6 +489,8 @@ export function createCollector(
               rulePayload: existing.rulePayload || "",
               upload: uploadDelta,
               download: downloadDelta,
+              sourceIP: existing.sourceIP,
+              timestampMs: now,
             });
             realtimeStore.recordTraffic(
               id,
@@ -465,6 +518,7 @@ export function createCollector(
                       geo,
                       upload: uploadDelta,
                       download: downloadDelta,
+                      timestampMs: now,
                     });
                     realtimeStore.recordCountryTraffic(
                       id,
@@ -489,11 +543,15 @@ export function createCollector(
       }
 
       // Find closed connections and remove them
-      for (const [connId, tracked] of activeConnections) {
+      for (const [connId] of activeConnections) {
         if (!currentIds.has(connId)) {
           // Connection closed - any remaining traffic was already counted
           activeConnections.delete(connId);
         }
+      }
+
+      if (batchBuffer.size() >= FLUSH_MAX_BUFFER_SIZE) {
+        flushBatch();
       }
 
       // Broadcast to WebSocket clients if there's new traffic (with throttling)
@@ -518,13 +576,7 @@ export function createCollector(
       clearInterval(flushInterval);
       flushInterval = null;
       // Final flush
-      const stats = batchBuffer.flush(db, geoService, id);
-      if (stats.trafficOk) {
-        realtimeStore.clearTraffic(id);
-      }
-      if (stats.countryOk) {
-        realtimeStore.clearCountries(id);
-      }
+      flushBatch();
     }
     originalDisconnect();
   };

@@ -18,11 +18,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Favicon } from "@/components/favicon";
 import { formatBytes } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { api, type TimeRange } from "@/lib/api";
 import type { DomainStats } from "@clashmaster/shared";
 
 interface TopDomainsChartProps {
   activeBackendId?: number;
+  timeRange?: TimeRange;
 }
 
 const TOP_OPTIONS = [10, 20, 50, 100] as const;
@@ -67,7 +68,7 @@ function renderCustomBarLabel(props: any) {
   );
 }
 
-export function TopDomainsChart({ activeBackendId }: TopDomainsChartProps) {
+export function TopDomainsChart({ activeBackendId, timeRange }: TopDomainsChartProps) {
   const t = useTranslations("domains");
   const commonT = useTranslations("stats");
   const [topN, setTopN] = useState<TopOption>(10);
@@ -88,6 +89,8 @@ export function TopDomainsChart({ activeBackendId }: TopDomainsChartProps) {
         limit: topN,
         sortBy: "totalDownload",
         sortOrder: "desc",
+        start: timeRange?.start,
+        end: timeRange?.end,
       });
       setDomains(result.data);
     } catch (error) {
@@ -95,7 +98,7 @@ export function TopDomainsChart({ activeBackendId }: TopDomainsChartProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [activeBackendId, topN]);
+  }, [activeBackendId, topN, timeRange]);
 
   // Fetch data when topN or activeBackendId changes
   useEffect(() => {

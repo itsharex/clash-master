@@ -5,6 +5,7 @@ import { Server, Link2, ArrowUpDown, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { CountryFlag, extractCountryCodeFromText, stripLeadingFlagEmoji } from "@/components/country-flag";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import type { ProxyStats } from "@clashmaster/shared";
 
@@ -18,26 +19,24 @@ type SortBy = "traffic" | "connections";
 
 const COLORS = ["#3B82F6", "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B", "#EF4444"];
 
-function formatProxyName(name: string): string {
-  if (!name) return "DIRECT";
+function normalizeProxyName(name: string): string {
   return name
     .replace(/^\["?/, "")
     .replace(/"?\]$/, "")
-    .replace(/^🇺🇸\s*/, "")
-    .replace(/^🇯🇵\s*/, "")
-    .replace(/^🇸🇬\s*/, "")
     .trim();
 }
 
-function getProxyEmoji(name: string): string {
-  if (name.includes("🇺🇸")) return "🇺🇸";
-  if (name.includes("🇯🇵")) return "🇯🇵";
-  if (name.includes("🇸🇬")) return "🇸🇬";
-  if (name.includes("🇭🇰")) return "🇭🇰";
-  if (name.includes("🇹🇼")) return "🇹🇼";
-  if (name.includes("🇰🇷")) return "🇰🇷";
-  if (name === "DIRECT" || name === "Direct") return "🏠";
-  return "🌐";
+function formatProxyName(name: string): string {
+  if (!name) return "DIRECT";
+  return stripLeadingFlagEmoji(normalizeProxyName(name));
+}
+
+function getProxyCountryCode(name: string): string {
+  const cleaned = normalizeProxyName(name);
+  if (cleaned === "DIRECT" || cleaned === "Direct") {
+    return "DIRECT";
+  }
+  return extractCountryCodeFromText(cleaned) ?? "UNKNOWN";
 }
 
 export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) {
@@ -60,7 +59,7 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
       total: p.totalDownload + p.totalUpload,
       color: COLORS[i % COLORS.length],
       displayName: formatProxyName(p.chain),
-      emoji: getProxyEmoji(p.chain),
+      countryCode: getProxyCountryCode(p.chain),
     }));
   }, [data, limit, sortBy]);
 
@@ -106,8 +105,8 @@ export function ProxyTopGrid({ data, limit = 5, onViewAll }: ProxyTopGridProps) 
                 {index + 1}
               </span>
 
-              {/* Emoji */}
-              <span className="text-2xl">{proxy.emoji}</span>
+              {/* Country */}
+              <CountryFlag country={proxy.countryCode} className="h-4 w-6" />
 
               {/* Name */}
               <div className="flex-1 min-w-0">

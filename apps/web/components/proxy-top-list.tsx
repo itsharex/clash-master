@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Server, Link2, ArrowUpDown } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { CountryFlag, extractCountryCodeFromText, stripLeadingFlagEmoji } from "@/components/country-flag";
 import { OverviewCard } from "./overview-card";
 import { TopListItem } from "./top-list-item";
 import { Button } from "@/components/ui/button";
@@ -19,27 +20,24 @@ type SortBy = "traffic" | "connections";
 
 const COLORS = ["#3B82F6", "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B"];
 
-function formatProxyName(name: string): string {
-  if (!name) return "DIRECT";
+function normalizeProxyName(name: string): string {
   return name
     .replace(/^\["?/, "")
     .replace(/"?\]$/, "")
-    .replace(/^🇺🇸\s*/, "🇺🇸 ")
-    .replace(/^🇯🇵\s*/, "🇯🇵 ")
-    .replace(/^🇸🇬\s*/, "🇸🇬 ")
-    .replace(/^🇭🇰\s*/, "🇭🇰 ")
     .trim();
 }
 
-function getProxyEmoji(name: string): string {
-  if (name.includes("🇺🇸")) return "🇺🇸";
-  if (name.includes("🇯🇵")) return "🇯🇵";
-  if (name.includes("🇸🇬")) return "🇸🇬";
-  if (name.includes("🇭🇰")) return "🇭🇰";
-  if (name.includes("🇹🇼")) return "🇹🇼";
-  if (name.includes("🇰🇷")) return "🇰🇷";
-  if (name === "DIRECT" || name === "Direct") return "🏠";
-  return "🌐";
+function formatProxyName(name: string): string {
+  if (!name) return "DIRECT";
+  return stripLeadingFlagEmoji(normalizeProxyName(name));
+}
+
+function getProxyCountryCode(name: string): string {
+  const cleaned = normalizeProxyName(name);
+  if (cleaned === "DIRECT" || cleaned === "Direct") {
+    return "DIRECT";
+  }
+  return extractCountryCodeFromText(cleaned) ?? "UNKNOWN";
 }
 
 export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) {
@@ -64,7 +62,7 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
       total: p.totalDownload + p.totalUpload,
       color: COLORS[i % COLORS.length],
       displayName: formatProxyName(p.chain),
-      emoji: getProxyEmoji(p.chain),
+      countryCode: getProxyCountryCode(p.chain),
     }));
     
     const totalT = list.reduce((sum, p) => sum + p.total, 0);
@@ -118,7 +116,7 @@ export function ProxyTopList({ data, limit = 5, onViewAll }: ProxyTopListProps) 
           <TopListItem
             key={proxy.chain}
             rank={index + 1}
-            icon={<span className="text-lg">{proxy.emoji}</span>}
+            icon={<CountryFlag country={proxy.countryCode} className="h-4 w-6" />}
             title={proxy.displayName}
             subtitle={sortBy === "traffic" 
               ? `${formatNumber(proxy.totalConnections)} ${proxiesT("connections")}` 

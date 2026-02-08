@@ -44,6 +44,8 @@ export const TopProxiesSimple = React.memo(
       return sorted.slice(0, 6);
     }, [proxies, sortBy]);
 
+    const hasData = sortedProxies.length > 0;
+
     const maxTotal = useMemo(() => {
       if (!sortedProxies.length) return 1;
       return Math.max(
@@ -101,7 +103,7 @@ export const TopProxiesSimple = React.memo(
 
         {/* List */}
         <div className="space-y-2 flex-1">
-          {sortedProxies.map((proxyItem, index) => {
+          {hasData ? sortedProxies.map((proxyItem, index) => {
             const total = proxyItem.totalDownload + proxyItem.totalUpload;
             const displayName = simplifyProxyName(proxyItem.chain);
             const badgeColor =
@@ -179,7 +181,19 @@ export const TopProxiesSimple = React.memo(
                 </div>
               </div>
             );
-          })}
+          }) : (
+            <div className="h-full min-h-[220px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5">
+              <div className="space-y-2">
+                {[0, 1, 2].map((item) => (
+                  <div key={item} className="h-8 rounded-lg bg-muted/60 animate-pulse" />
+                ))}
+              </div>
+              <div className="mt-4 text-center">
+                <p className="text-sm font-medium text-muted-foreground">{t("noData")}</p>
+                <p className="text-xs text-muted-foreground/80 mt-1">{t("noDataHint")}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -188,7 +202,8 @@ export const TopProxiesSimple = React.memo(
             variant="ghost"
             size="sm"
             className="w-full h-9 text-xs"
-            onClick={onViewAll}>
+            onClick={onViewAll}
+            disabled={!hasData}>
             {t("viewAll")}
             <ArrowRight className="w-3 h-3 ml-1" />
           </Button>

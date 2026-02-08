@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { Connection, DomainStats, IPStats, HourlyStats, DailyStats, ProxyStats, RuleStats, ProxyTrafficStats } from '@clashmaster/shared';
+import type { Connection, DomainStats, IPStats, HourlyStats, DailyStats, ProxyStats, RuleStats, ProxyTrafficStats, DeviceStats } from '@clashmaster/shared';
 // Retention config stored in database (doesn't include cleanupInterval)
 interface DatabaseRetentionConfig {
   connectionLogsDays: number;
@@ -18,6 +18,8 @@ export interface TrafficUpdate {
   rulePayload: string;
   upload: number;
   download: number;
+  sourceIP?: string;
+  timestampMs?: number;
 }
 
 export interface BackendConfig {
@@ -169,6 +171,52 @@ export class StatsDatabase {
       );
     `);
 
+    // Device statistics per backend
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS device_stats (
+        backend_id INTEGER NOT NULL,
+        source_ip TEXT NOT NULL,
+        total_upload INTEGER DEFAULT 0,
+        total_download INTEGER DEFAULT 0,
+        total_connections INTEGER DEFAULT 0,
+        last_seen DATETIME,
+        PRIMARY KEY (backend_id, source_ip),
+        FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Device×domain traffic aggregation
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS device_domain_stats (
+        backend_id INTEGER NOT NULL,
+        source_ip TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        total_upload INTEGER DEFAULT 0,
+        total_download INTEGER DEFAULT 0,
+        total_connections INTEGER DEFAULT 0,
+        last_seen DATETIME,
+        PRIMARY KEY (backend_id, source_ip, domain),
+        FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+      );
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_device_domain_source_ip ON device_domain_stats(backend_id, source_ip);`);
+
+    // Device×IP traffic aggregation
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS device_ip_stats (
+        backend_id INTEGER NOT NULL,
+        source_ip TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        total_upload INTEGER DEFAULT 0,
+        total_download INTEGER DEFAULT 0,
+        total_connections INTEGER DEFAULT 0,
+        last_seen DATETIME,
+        PRIMARY KEY (backend_id, source_ip, ip),
+        FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+      );
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_device_ip_source_ip ON device_ip_stats(backend_id, source_ip);`);
+
     // Hourly aggregation per backend
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS hourly_stats (
@@ -206,6 +254,40 @@ export class StatsDatabase {
         download INTEGER DEFAULT 0,
         connections INTEGER DEFAULT 0,
         PRIMARY KEY (backend_id, minute),
+        FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Minute-level fact table for accurate range queries across domain/ip/rule/proxy/device dimensions
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS minute_dim_stats (
+        backend_id INTEGER NOT NULL,
+        minute TEXT NOT NULL,
+        domain TEXT NOT NULL DEFAULT '',
+        ip TEXT NOT NULL DEFAULT '',
+        source_ip TEXT NOT NULL DEFAULT '',
+        chain TEXT NOT NULL,
+        rule TEXT NOT NULL,
+        upload INTEGER DEFAULT 0,
+        download INTEGER DEFAULT 0,
+        connections INTEGER DEFAULT 0,
+        PRIMARY KEY (backend_id, minute, domain, ip, source_ip, chain, rule),
+        FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Minute-level country facts for range-based country queries
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS minute_country_stats (
+        backend_id INTEGER NOT NULL,
+        minute TEXT NOT NULL,
+        country TEXT NOT NULL,
+        country_name TEXT,
+        continent TEXT,
+        upload INTEGER DEFAULT 0,
+        download INTEGER DEFAULT 0,
+        connections INTEGER DEFAULT 0,
+        PRIMARY KEY (backend_id, minute, country),
         FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
       );
     `);
@@ -301,6 +383,14 @@ export class StatsDatabase {
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_rule_proxy_map ON rule_proxy_map(backend_id, rule, proxy);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_country_stats_backend ON country_stats(backend_id);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_hourly_stats_backend ON hourly_stats(backend_id);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_stats_backend_minute ON minute_stats(backend_id, minute);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute ON minute_dim_stats(backend_id, minute);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute_domain ON minute_dim_stats(backend_id, minute, domain);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute_ip ON minute_dim_stats(backend_id, minute, ip);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute_chain ON minute_dim_stats(backend_id, minute, chain);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute_rule ON minute_dim_stats(backend_id, minute, rule);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_dim_backend_minute_source ON minute_dim_stats(backend_id, minute, source_ip);`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_minute_country_backend_minute ON minute_country_stats(backend_id, minute);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_connection_logs_backend ON connection_logs(backend_id);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_connection_logs_timestamp ON connection_logs(timestamp);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_connection_logs_domain ON connection_logs(domain);`);
@@ -954,7 +1044,6 @@ export class StatsDatabase {
 
     const now = new Date();
     const timestamp = now.toISOString();
-    const hour = timestamp.slice(0, 13) + ':00:00';
 
     // Aggregate updates by domain, ip, chain to reduce UPSERT conflicts
     const domainMap = new Map<string, TrafficUpdate & { count: number }>();
@@ -966,8 +1055,22 @@ export class StatsDatabase {
     const ruleDomainMap = new Map<string, { rule: string; domain: string; upload: number; download: number; count: number }>();
     const ruleIPMap = new Map<string, { rule: string; ip: string; upload: number; download: number; count: number }>();
     const minuteMap = new Map<string, { upload: number; download: number; connections: number }>();
+    const minuteDimMap = new Map<string, {
+      minute: string;
+      domain: string;
+      ip: string;
+      sourceIP: string;
+      chain: string;
+      rule: string;
+      upload: number;
+      download: number;
+      connections: number;
+    }>();
     const domainProxyMap = new Map<string, { domain: string; chain: string; upload: number; download: number; count: number }>();
     const ipProxyMap = new Map<string, { ip: string; chain: string; upload: number; download: number; count: number; domains: Set<string> }>();
+    const deviceMap = new Map<string, { sourceIP: string; upload: number; download: number; count: number }>();
+    const deviceDomainMap = new Map<string, { sourceIP: string; domain: string; upload: number; download: number; count: number }>();
+    const deviceIPMap = new Map<string, { sourceIP: string; ip: string; upload: number; download: number; count: number }>();
 
     for (const update of updates) {
       if (update.upload === 0 && update.download === 0) continue;
@@ -977,6 +1080,9 @@ export class StatsDatabase {
       const ruleName = update.chains.length > 1 ? update.chains[update.chains.length - 1] : 
                        update.rulePayload ? `${update.rule}(${update.rulePayload})` : update.rule;
       const finalProxy = update.chains.length > 0 ? update.chains[0] : 'DIRECT';
+      const eventDate = new Date(update.timestampMs ?? now.getTime());
+      const hourKey = this.toHourKey(eventDate);
+      const minuteKey = this.toMinuteKey(eventDate);
 
       // Aggregate domain stats
       if (update.domain) {
@@ -1030,7 +1136,6 @@ export class StatsDatabase {
       }
 
       // Aggregate hourly stats
-      const hourKey = hour;
       const existingHour = hourlyMap.get(hourKey);
       if (existingHour) {
         existingHour.upload += update.upload;
@@ -1081,14 +1186,38 @@ export class StatsDatabase {
       }
 
       // Aggregate minute_stats
-      const minute = timestamp.slice(0, 16) + ':00'; // 'YYYY-MM-DDTHH:MM:00'
-      const existingMinute = minuteMap.get(minute);
+      const existingMinute = minuteMap.get(minuteKey);
       if (existingMinute) {
         existingMinute.upload += update.upload;
         existingMinute.download += update.download;
         existingMinute.connections++;
       } else {
-        minuteMap.set(minute, { upload: update.upload, download: update.download, connections: 1 });
+        minuteMap.set(minuteKey, { upload: update.upload, download: update.download, connections: 1 });
+      }
+
+      // Aggregate minute-level dimension facts for range queries
+      const dimDomain = update.domain || '';
+      const dimIP = update.ip || '';
+      const dimSourceIP = update.sourceIP || '';
+      const dimChain = update.chain || 'DIRECT';
+      const dimKey = `${minuteKey}:${dimDomain}:${dimIP}:${dimSourceIP}:${dimChain}:${ruleName}`;
+      const existingDim = minuteDimMap.get(dimKey);
+      if (existingDim) {
+        existingDim.upload += update.upload;
+        existingDim.download += update.download;
+        existingDim.connections++;
+      } else {
+        minuteDimMap.set(dimKey, {
+          minute: minuteKey,
+          domain: dimDomain,
+          ip: dimIP,
+          sourceIP: dimSourceIP,
+          chain: dimChain,
+          rule: ruleName,
+          upload: update.upload,
+          download: update.download,
+          connections: 1,
+        });
       }
 
       // Aggregate domain_proxy_stats (only when domain exists)
@@ -1121,6 +1250,48 @@ export class StatsDatabase {
           domains.add(update.domain);
         }
         ipProxyMap.set(ipPKey, { ip: update.ip, chain: proxyChain, upload: update.upload, download: update.download, count: 1, domains });
+      }
+
+      // Aggregate device stats
+      if (update.sourceIP) {
+        const sourceIP = update.sourceIP;
+        
+        // Device stats
+        const deviceKey = sourceIP;
+        const existingDevice = deviceMap.get(deviceKey);
+        if (existingDevice) {
+          existingDevice.upload += update.upload;
+          existingDevice.download += update.download;
+          existingDevice.count++;
+        } else {
+          deviceMap.set(deviceKey, { sourceIP, upload: update.upload, download: update.download, count: 1 });
+        }
+
+        // Device domain stats
+        if (update.domain) {
+          const deviceDomainKey = `${sourceIP}:${update.domain}`;
+          const existingDeviceDomain = deviceDomainMap.get(deviceDomainKey);
+          if (existingDeviceDomain) {
+            existingDeviceDomain.upload += update.upload;
+            existingDeviceDomain.download += update.download;
+            existingDeviceDomain.count++;
+          } else {
+            deviceDomainMap.set(deviceDomainKey, { sourceIP, domain: update.domain, upload: update.upload, download: update.download, count: 1 });
+          }
+        }
+
+        // Device IP stats
+        if (update.ip) {
+          const deviceIPKey = `${sourceIP}:${update.ip}`;
+          const existingDeviceIP = deviceIPMap.get(deviceIPKey);
+          if (existingDeviceIP) {
+            existingDeviceIP.upload += update.upload;
+            existingDeviceIP.download += update.download;
+            existingDeviceIP.count++;
+          } else {
+            deviceIPMap.set(deviceIPKey, { sourceIP, ip: update.ip, upload: update.upload, download: update.download, count: 1 });
+          }
+        }
       }
     }
 
@@ -1381,6 +1552,31 @@ export class StatsDatabase {
         });
       }
 
+      // UPSERT minute_dim_stats (range-query fact table)
+      const minuteDimStmt = this.db.prepare(`
+        INSERT INTO minute_dim_stats (backend_id, minute, domain, ip, source_ip, chain, rule, upload, download, connections)
+        VALUES (@backendId, @minute, @domain, @ip, @sourceIP, @chain, @rule, @upload, @download, @connections)
+        ON CONFLICT(backend_id, minute, domain, ip, source_ip, chain, rule) DO UPDATE SET
+          upload = upload + @upload,
+          download = download + @download,
+          connections = connections + @connections
+      `);
+
+      for (const [, data] of minuteDimMap) {
+        minuteDimStmt.run({
+          backendId,
+          minute: data.minute,
+          domain: data.domain,
+          ip: data.ip,
+          sourceIP: data.sourceIP,
+          chain: data.chain,
+          rule: data.rule,
+          upload: data.upload,
+          download: data.download,
+          connections: data.connections,
+        });
+      }
+
       // UPSERT domain_proxy_stats
       const domainProxyStmt = this.db.prepare(`
         INSERT INTO domain_proxy_stats (backend_id, domain, chain, total_upload, total_download, total_connections, last_seen)
@@ -1446,9 +1642,313 @@ export class StatsDatabase {
           }
         }
       }
+      // Device stats
+      const deviceStmt = this.db.prepare(`
+        INSERT INTO device_stats (backend_id, source_ip, total_upload, total_download, total_connections, last_seen)
+        VALUES (@backendId, @sourceIP, @upload, @download, @count, @timestamp)
+        ON CONFLICT(backend_id, source_ip) DO UPDATE SET
+          total_upload = total_upload + @upload,
+          total_download = total_download + @download,
+          total_connections = total_connections + @count,
+          last_seen = @timestamp
+      `);
+
+      for (const [key, data] of deviceMap) {
+        deviceStmt.run({
+          backendId,
+          sourceIP: data.sourceIP,
+          upload: data.upload,
+          download: data.download,
+          count: data.count,
+          timestamp
+        });
+      }
+
+      // Device domain stats
+      const deviceDomainStmt = this.db.prepare(`
+        INSERT INTO device_domain_stats (backend_id, source_ip, domain, total_upload, total_download, total_connections, last_seen)
+        VALUES (@backendId, @sourceIP, @domain, @upload, @download, @count, @timestamp)
+        ON CONFLICT(backend_id, source_ip, domain) DO UPDATE SET
+          total_upload = total_upload + @upload,
+          total_download = total_download + @download,
+          total_connections = total_connections + @count,
+          last_seen = @timestamp
+      `);
+
+      for (const [key, data] of deviceDomainMap) {
+        deviceDomainStmt.run({
+          backendId,
+          sourceIP: data.sourceIP,
+          domain: data.domain,
+          upload: data.upload,
+          download: data.download,
+          count: data.count,
+          timestamp
+        });
+      }
+
+      // Device IP stats
+      const deviceIPStmt = this.db.prepare(`
+        INSERT INTO device_ip_stats (backend_id, source_ip, ip, total_upload, total_download, total_connections, last_seen)
+        VALUES (@backendId, @sourceIP, @ip, @upload, @download, @count, @timestamp)
+        ON CONFLICT(backend_id, source_ip, ip) DO UPDATE SET
+          total_upload = total_upload + @upload,
+          total_download = total_download + @download,
+          total_connections = total_connections + @count,
+          last_seen = @timestamp
+      `);
+
+      for (const [key, data] of deviceIPMap) {
+        deviceIPStmt.run({
+          backendId,
+          sourceIP: data.sourceIP,
+          ip: data.ip,
+          upload: data.upload,
+          download: data.download,
+          count: data.count,
+          timestamp
+        });
+      }
     });
 
     transaction();
+  }
+
+  private toMinuteKey(date: Date): string {
+    return `${date.toISOString().slice(0, 16)}:00`;
+  }
+
+  private toHourKey(date: Date): string {
+    return `${date.toISOString().slice(0, 13)}:00:00`;
+  }
+
+  private parseMinuteRange(
+    start?: string,
+    end?: string,
+  ): { startMinute: string; endMinute: string } | null {
+    if (!start || !end) {
+      return null;
+    }
+
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime()) ||
+      startDate > endDate
+    ) {
+      return null;
+    }
+
+    return {
+      startMinute: this.toMinuteKey(startDate),
+      endMinute: this.toMinuteKey(endDate),
+    };
+  }
+
+  private splitChainParts(chain: string): string[] {
+    return chain
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  private normalizeFlowLabel(label: string): string {
+    return label
+      .normalize("NFKC")
+      .replace(/^[^\p{L}\p{N}]+/gu, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  }
+
+  private findRuleIndexInChain(chainParts: string[], rule: string): number {
+    const exactIndex = chainParts.findIndex((part) => part === rule);
+    if (exactIndex !== -1) {
+      return exactIndex;
+    }
+
+    const normalizedRule = this.normalizeFlowLabel(rule);
+    if (!normalizedRule) {
+      return -1;
+    }
+
+    return chainParts.findIndex(
+      (part) => this.normalizeFlowLabel(part) === normalizedRule,
+    );
+  }
+
+  private getChainFirstHop(chain: string): string {
+    const parts = this.splitChainParts(chain);
+    return parts[0] || chain;
+  }
+
+  private allocateByWeights(total: number, weights: number[]): number[] {
+    if (weights.length === 0) return [];
+    const sum = weights.reduce((acc, w) => acc + w, 0);
+    if (sum <= 0) {
+      const base = Math.floor(total / weights.length);
+      const result = new Array(weights.length).fill(base);
+      let remainder = total - base * weights.length;
+      for (let i = 0; i < result.length && remainder > 0; i++, remainder--) {
+        result[i] += 1;
+      }
+      return result;
+    }
+
+    const raw = weights.map(w => (total * w) / sum);
+    const floored = raw.map(v => Math.floor(v));
+    let remainder = total - floored.reduce((acc, v) => acc + v, 0);
+    const order = raw
+      .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+      .sort((a, b) => b.frac - a.frac);
+    for (let k = 0; k < order.length && remainder > 0; k++, remainder--) {
+      floored[order[k].i] += 1;
+    }
+    return floored;
+  }
+
+  /**
+   * minute_dim_stats stores proxy hop in `chain` (e.g. DIRECT), which loses
+   * middle nodes. For ranged chain-flow queries we remap range traffic onto
+   * full chains from cumulative rule_chain_traffic to preserve topology.
+   */
+  private remapRangeRowsToFullChains(
+    rangeRows: Array<{
+      rule: string;
+      chain: string;
+      totalUpload: number;
+      totalDownload: number;
+      totalConnections: number;
+    }>,
+    baselineRows: Array<{
+      rule: string;
+      chain: string;
+      totalUpload: number;
+      totalDownload: number;
+      totalConnections: number;
+    }>,
+  ): Array<{
+    rule: string;
+    chain: string;
+    totalUpload: number;
+    totalDownload: number;
+    totalConnections: number;
+  }> {
+    if (rangeRows.length === 0) return [];
+    if (baselineRows.length === 0) return rangeRows;
+
+    const baselineByRuleHop = new Map<string, typeof baselineRows>();
+    const baselineByNormalizedRuleHop = new Map<string, typeof baselineRows>();
+    for (const row of baselineRows) {
+      const hop = this.getChainFirstHop(row.chain);
+      const key = `${row.rule}|||${hop}`;
+      const list = baselineByRuleHop.get(key);
+      if (list) {
+        list.push(row);
+      } else {
+        baselineByRuleHop.set(key, [row]);
+      }
+
+      const normalizedRule = this.normalizeFlowLabel(row.rule);
+      if (!normalizedRule) continue;
+      const normalizedKey = `${normalizedRule}|||${hop}`;
+      const normalizedList = baselineByNormalizedRuleHop.get(normalizedKey);
+      if (normalizedList) {
+        normalizedList.push(row);
+      } else {
+        baselineByNormalizedRuleHop.set(normalizedKey, [row]);
+      }
+    }
+
+    const mapped: Array<{
+      rule: string;
+      chain: string;
+      totalUpload: number;
+      totalDownload: number;
+      totalConnections: number;
+    }> = [];
+
+    for (const row of rangeRows) {
+      const parts = this.splitChainParts(row.chain);
+      const alreadyFull =
+        parts.length > 1 && this.findRuleIndexInChain(parts, row.rule) !== -1;
+      if (alreadyFull) {
+        mapped.push(row);
+        continue;
+      }
+
+      const hop = this.getChainFirstHop(row.chain);
+      const normalizedRule = this.normalizeFlowLabel(row.rule);
+      const candidates =
+        baselineByRuleHop.get(`${row.rule}|||${hop}`) ||
+        (normalizedRule
+          ? baselineByNormalizedRuleHop.get(`${normalizedRule}|||${hop}`)
+          : undefined);
+      if (!candidates || candidates.length === 0) {
+        mapped.push(row);
+        continue;
+      }
+
+      if (candidates.length === 1) {
+        mapped.push({
+          rule: row.rule,
+          chain: candidates[0].chain,
+          totalUpload: row.totalUpload,
+          totalDownload: row.totalDownload,
+          totalConnections: row.totalConnections,
+        });
+        continue;
+      }
+
+      const weights = candidates.map(c => {
+        const traffic = c.totalUpload + c.totalDownload;
+        return traffic > 0 ? traffic : Math.max(1, c.totalConnections);
+      });
+      const uploadParts = this.allocateByWeights(row.totalUpload, weights);
+      const downloadParts = this.allocateByWeights(row.totalDownload, weights);
+      const connParts = this.allocateByWeights(row.totalConnections, weights);
+      for (let i = 0; i < candidates.length; i++) {
+        mapped.push({
+          rule: row.rule,
+          chain: candidates[i].chain,
+          totalUpload: uploadParts[i] || 0,
+          totalDownload: downloadParts[i] || 0,
+          totalConnections: connParts[i] || 0,
+        });
+      }
+    }
+
+    return mapped;
+  }
+
+  /**
+   * Build a normalized rule flow path in "rule -> ... -> proxy" order.
+   * Legacy cumulative rows often store full chain ending with rule, while
+   * minute_dim rows may only store proxy/group chain without rule.
+   */
+  private buildRuleFlowPath(rule: string, chain: string): string[] {
+    const chainParts = this.splitChainParts(chain);
+    if (chainParts.length === 0) {
+      return [];
+    }
+
+    const ruleIndex = this.findRuleIndexInChain(chainParts, rule);
+    if (ruleIndex !== -1) {
+      // Full chain stored as proxy > ... > rule, reverse to rule > ... > proxy.
+      return chainParts.slice(0, ruleIndex + 1).reverse();
+    }
+
+    // Fallback for mismatched labels or minute_dim rows:
+    // normalize direction to rule/group -> ... -> proxy.
+    const reversed = [...chainParts].reverse();
+    const normalizedRule = this.normalizeFlowLabel(rule);
+    const normalizedHead = this.normalizeFlowLabel(reversed[0] || "");
+    if (normalizedRule && normalizedRule === normalizedHead) {
+      return reversed;
+    }
+
+    return [rule, ...reversed];
   }
 
   // Get a specific domain by name
@@ -1481,7 +1981,49 @@ export class StatsDatabase {
   }
 
   // Get all domain stats for a specific backend
-  getDomainStats(backendId: number, limit = 100): DomainStats[] {
+  getDomainStats(backendId: number, limit = 100, start?: string, end?: string): DomainStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          domain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT ip) as ips,
+          GROUP_CONCAT(DISTINCT rule) as rules,
+          GROUP_CONCAT(DISTINCT chain) as chains
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND domain != ''
+        GROUP BY domain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        limit,
+      ) as Array<{
+        domain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        ips: string | null;
+        rules: string | null;
+        chains: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ...row,
+        ips: row.ips ? row.ips.split(',').filter(Boolean) : [],
+        rules: row.rules ? row.rules.split(',').filter(Boolean) : [],
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as DomainStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT domain, total_upload as totalUpload, total_download as totalDownload, 
              total_connections as totalConnections, last_seen as lastSeen, ips, rules, chains
@@ -1564,8 +2106,142 @@ export class StatsDatabase {
     })) as IPStats[];
   }
 
+  // Get IP details for a specific domain (supports optional time range)
+  getDomainIPDetails(
+    backendId: number,
+    domain: string,
+    start?: string,
+    end?: string,
+    limit = 100,
+  ): IPStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          m.ip,
+          GROUP_CONCAT(DISTINCT CASE WHEN m.domain != '' THEN m.domain END) as domains,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections,
+          MAX(m.minute) as lastSeen,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIP,
+          GROUP_CONCAT(DISTINCT m.chain) as chains
+        FROM minute_dim_stats m
+        LEFT JOIN ip_stats i ON m.backend_id = i.backend_id AND m.ip = i.ip
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.domain = ? AND m.ip != ''
+        GROUP BY m.ip
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        domain,
+        limit,
+      ) as Array<{
+        ip: string;
+        domains: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        asn: string | null;
+        geoIP: string | null;
+        chains: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ...row,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        geoIP: row.geoIP ? JSON.parse(row.geoIP).filter(Boolean) : undefined,
+        asn: row.asn || undefined,
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as IPStats[];
+    }
+
+    const domainData = this.getDomainByName(backendId, domain);
+    if (!domainData || !domainData.ips || domainData.ips.length === 0) {
+      return [];
+    }
+    return this.getIPStatsByIPs(backendId, domainData.ips.slice(0, limit));
+  }
+
   // Get all IP stats for a specific backend
-  getIPStats(backendId: number, limit = 100): IPStats[] {
+  getIPStats(backendId: number, limit = 100, start?: string, end?: string): IPStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          m.ip,
+          GROUP_CONCAT(DISTINCT CASE WHEN m.domain != '' THEN m.domain END) as domains,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections,
+          MAX(m.minute) as lastSeen,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIP,
+          GROUP_CONCAT(DISTINCT m.chain) as chains
+        FROM minute_dim_stats m
+        LEFT JOIN ip_stats i ON m.backend_id = i.backend_id AND m.ip = i.ip
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.ip != ''
+        GROUP BY m.ip
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        limit,
+      ) as Array<{
+        ip: string;
+        domains: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        asn: string | null;
+        geoIP: string | null;
+        chains: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ...row,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        geoIP: row.geoIP ? JSON.parse(row.geoIP).filter(Boolean) : undefined,
+        asn: row.asn || undefined,
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as IPStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT 
         i.ip, 
@@ -1617,7 +2293,24 @@ export class StatsDatabase {
   }
 
   // Get hourly stats for a specific backend
-  getHourlyStats(backendId: number, hours = 24): HourlyStats[] {
+  getHourlyStats(backendId: number, hours = 24, start?: string, end?: string): HourlyStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          substr(minute, 1, 13) || ':00:00' as hour,
+          SUM(upload) as upload,
+          SUM(download) as download,
+          SUM(connections) as connections
+        FROM minute_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+        GROUP BY substr(minute, 1, 13)
+        ORDER BY hour DESC
+        LIMIT ?
+      `);
+      return stmt.all(backendId, range.startMinute, range.endMinute, hours) as HourlyStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT hour, upload, download, connections
       FROM hourly_stats
@@ -1639,33 +2332,79 @@ export class StatsDatabase {
     return stmt.get(backendId, today) as { upload: number; download: number };
   }
 
+  getTrafficInRange(
+    backendId: number,
+    start?: string,
+    end?: string,
+  ): { upload: number; download: number } {
+    const range = this.parseMinuteRange(start, end);
+    if (!range) {
+      return this.getTodayTraffic(backendId);
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(upload), 0) as upload,
+        COALESCE(SUM(download), 0) as download
+      FROM minute_stats
+      WHERE backend_id = ? AND minute >= ? AND minute <= ?
+    `);
+    return stmt.get(
+      backendId,
+      range.startMinute,
+      range.endMinute,
+    ) as { upload: number; download: number };
+  }
+
   // Get traffic trend for a specific backend (for time range selection)
-  getTrafficTrend(backendId: number, minutes = 30): Array<{ time: string; upload: number; download: number }> {
+  getTrafficTrend(
+    backendId: number,
+    minutes = 30,
+    start?: string,
+    end?: string,
+  ): Array<{ time: string; upload: number; download: number }> {
+    const range = this.parseMinuteRange(start, end);
     const cutoff = new Date(Date.now() - minutes * 60 * 1000);
     const cutoffStr = cutoff.toISOString().slice(0, 16) + ':00';
     const stmt = this.db.prepare(`
       SELECT minute as time, upload, download
       FROM minute_stats
-      WHERE backend_id = ? AND minute >= ?
+      WHERE backend_id = ? AND minute >= ? AND minute <= ?
       ORDER BY minute ASC
     `);
-    return stmt.all(backendId, cutoffStr) as Array<{ time: string; upload: number; download: number }>;
+    return stmt.all(
+      backendId,
+      range?.startMinute || cutoffStr,
+      range?.endMinute || this.toMinuteKey(new Date()),
+    ) as Array<{ time: string; upload: number; download: number }>;
   }
 
   // Get traffic trend aggregated by time buckets for chart display
-  getTrafficTrendAggregated(backendId: number, minutes = 30, bucketMinutes = 1): Array<{ time: string; upload: number; download: number }> {
+  getTrafficTrendAggregated(
+    backendId: number,
+    minutes = 30,
+    bucketMinutes = 1,
+    start?: string,
+    end?: string,
+  ): Array<{ time: string; upload: number; download: number }> {
+    const range = this.parseMinuteRange(start, end);
     const cutoff = new Date(Date.now() - minutes * 60 * 1000);
     const cutoffStr = cutoff.toISOString().slice(0, 16) + ':00';
+    const endMinute = range?.endMinute || this.toMinuteKey(new Date());
 
     if (bucketMinutes <= 1) {
       // Direct query - each row is already 1-minute granularity
       const stmt = this.db.prepare(`
         SELECT minute as time, upload, download
         FROM minute_stats
-        WHERE backend_id = ? AND minute >= ?
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
         ORDER BY minute ASC
       `);
-      return stmt.all(backendId, cutoffStr) as Array<{ time: string; upload: number; download: number }>;
+      return stmt.all(
+        backendId,
+        range?.startMinute || cutoffStr,
+        endMinute,
+      ) as Array<{ time: string; upload: number; download: number }>;
     }
 
     // Aggregate multiple minutes into larger buckets
@@ -1676,15 +2415,105 @@ export class StatsDatabase {
         SUM(upload) as upload,
         SUM(download) as download
       FROM minute_stats
-      WHERE backend_id = ? AND minute >= ?
+      WHERE backend_id = ? AND minute >= ? AND minute <= ?
       GROUP BY ${bucketExpr}
       ORDER BY time ASC
     `);
-    return stmt.all(backendId, cutoffStr) as Array<{ time: string; upload: number; download: number }>;
+    return stmt.all(
+      backendId,
+      range?.startMinute || cutoffStr,
+      endMinute,
+    ) as Array<{ time: string; upload: number; download: number }>;
   }
 
   // Get country stats for a specific backend
-  getCountryStats(backendId: number): Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }> {
+  getCountryStats(
+    backendId: number,
+    limit = 50,
+    start?: string,
+    end?: string,
+  ): Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }> {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const minuteCountryStmt = this.db.prepare(`
+        SELECT
+          country,
+          MAX(country_name) as countryName,
+          MAX(continent) as continent,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections
+        FROM minute_country_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+        GROUP BY country
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      const minuteCountryRows = minuteCountryStmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        limit,
+      ) as Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }>;
+      if (minuteCountryRows.length > 0) {
+        return minuteCountryRows;
+      }
+
+      // Fallback 1: derive country distribution from minute_dim_stats + geoip_cache
+      // This covers periods where minute_country_stats is missing but dimension facts exist.
+      const minuteDimFallbackStmt = this.db.prepare(`
+        SELECT
+          COALESCE(g.country, 'UNKNOWN') as country,
+          COALESCE(MAX(g.country_name), 'Unknown') as countryName,
+          COALESCE(MAX(g.continent), 'Unknown') as continent,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections
+        FROM minute_dim_stats m
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.ip != ''
+        GROUP BY COALESCE(g.country, 'UNKNOWN')
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+      const minuteDimFallbackRows = minuteDimFallbackStmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        limit,
+      ) as Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }>;
+      if (minuteDimFallbackRows.length > 0) {
+        return minuteDimFallbackRows;
+      }
+
+      // Fallback 2: if only minute_stats exists for this range, keep totals visible as UNKNOWN country.
+      const totalStmt = this.db.prepare(`
+        SELECT
+          COALESCE(SUM(upload), 0) as upload,
+          COALESCE(SUM(download), 0) as download,
+          COALESCE(SUM(connections), 0) as connections
+        FROM minute_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+      `);
+      const total = totalStmt.get(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as { upload: number; download: number; connections: number };
+      if (total.upload > 0 || total.download > 0 || total.connections > 0) {
+        return [{
+          country: 'UNKNOWN',
+          countryName: 'Unknown',
+          continent: 'Unknown',
+          totalUpload: total.upload,
+          totalDownload: total.download,
+          totalConnections: total.connections,
+        }];
+      }
+
+      return [];
+    }
+
     const stmt = this.db.prepare(`
       SELECT country, country_name as countryName, continent, 
              total_upload as totalUpload, total_download as totalDownload, 
@@ -1692,8 +2521,9 @@ export class StatsDatabase {
       FROM country_stats
       WHERE backend_id = ?
       ORDER BY (total_upload + total_download) DESC
+      LIMIT ?
     `);
-    return stmt.all(backendId) as Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }>;
+    return stmt.all(backendId, limit) as Array<{ country: string; countryName: string; continent: string; totalUpload: number; totalDownload: number; totalConnections: number }>;
   }
 
   // Update country stats for a specific backend
@@ -1714,10 +2544,11 @@ export class StatsDatabase {
   batchUpdateCountryStats(backendId: number, results: Array<{
     country: string; countryName: string; continent: string;
     upload: number; download: number;
+    timestampMs?: number;
   }>): void {
     if (results.length === 0) return;
 
-    const stmt = this.db.prepare(`
+    const cumulativeStmt = this.db.prepare(`
       INSERT INTO country_stats (backend_id, country, country_name, continent, total_upload, total_download, total_connections, last_seen)
       VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
       ON CONFLICT(backend_id, country) DO UPDATE SET
@@ -1727,22 +2558,288 @@ export class StatsDatabase {
         last_seen = CURRENT_TIMESTAMP
     `);
 
+    const minuteStmt = this.db.prepare(`
+      INSERT INTO minute_country_stats (backend_id, minute, country, country_name, continent, upload, download, connections)
+      VALUES (@backendId, @minute, @country, @countryName, @continent, @upload, @download, @connections)
+      ON CONFLICT(backend_id, minute, country) DO UPDATE SET
+        upload = upload + @upload,
+        download = download + @download,
+        connections = connections + @connections
+    `);
+
     const tx = this.db.transaction(() => {
+      const minuteMap = new Map<string, {
+        minute: string;
+        country: string;
+        countryName: string;
+        continent: string;
+        upload: number;
+        download: number;
+        connections: number;
+      }>();
+
       for (const r of results) {
-        stmt.run(backendId, r.country, r.countryName, r.continent, r.upload, r.download, r.upload, r.download);
+        cumulativeStmt.run(backendId, r.country, r.countryName, r.continent, r.upload, r.download, r.upload, r.download);
+
+        const minute = this.toMinuteKey(new Date(r.timestampMs ?? Date.now()));
+        const key = `${minute}:${r.country}`;
+        const existing = minuteMap.get(key);
+        if (existing) {
+          existing.upload += r.upload;
+          existing.download += r.download;
+          existing.connections++;
+        } else {
+          minuteMap.set(key, {
+            minute,
+            country: r.country,
+            countryName: r.countryName,
+            continent: r.continent,
+            upload: r.upload,
+            download: r.download,
+            connections: 1,
+          });
+        }
+      }
+
+      for (const [, item] of minuteMap) {
+        minuteStmt.run({
+          backendId,
+          minute: item.minute,
+          country: item.country,
+          countryName: item.countryName,
+          continent: item.continent,
+          upload: item.upload,
+          download: item.download,
+          connections: item.connections,
+        });
       }
     });
     tx();
   }
 
+  // Get device stats for a specific backend
+  getDevices(backendId: number, limit = 50, start?: string, end?: string): DeviceStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          source_ip as sourceIP,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND source_ip != ''
+        GROUP BY source_ip
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      return stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        limit,
+      ) as DeviceStats[];
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT source_ip as sourceIP,
+             total_upload as totalUpload, total_download as totalDownload, 
+             total_connections as totalConnections, last_seen as lastSeen
+      FROM device_stats
+      WHERE backend_id = ?
+      ORDER BY (total_upload + total_download) DESC
+      LIMIT ?
+    `);
+    return stmt.all(backendId, limit) as DeviceStats[];
+  }
+
+  // Get domain breakdown for a specific device
+  getDeviceDomains(
+    backendId: number,
+    sourceIP: string,
+    limit = 5000,
+    start?: string,
+    end?: string,
+  ): DomainStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          domain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT ip) as ips,
+          GROUP_CONCAT(DISTINCT rule) as rules,
+          GROUP_CONCAT(DISTINCT chain) as chains
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND source_ip = ? AND domain != ''
+        GROUP BY domain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        sourceIP,
+        limit,
+      ) as Array<{
+        domain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        ips: string | null;
+        rules: string | null;
+        chains: string | null;
+      }>;
+      return rows.map(row => ({
+        ...row,
+        ips: row.ips ? row.ips.split(',').filter(Boolean) : [],
+        rules: row.rules ? row.rules.split(',').filter(Boolean) : [],
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as DomainStats[];
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT 
+        d.domain, 
+        d.total_upload as totalUpload, 
+        d.total_download as totalDownload, 
+        d.total_connections as totalConnections, 
+        d.last_seen as lastSeen,
+        g.ips
+      FROM device_domain_stats d
+      LEFT JOIN domain_stats g ON d.domain = g.domain AND d.backend_id = g.backend_id
+      WHERE d.backend_id = ? AND d.source_ip = ?
+      ORDER BY (d.total_upload + d.total_download) DESC
+      LIMIT ?
+    `);
+    const result = stmt.all(backendId, sourceIP, limit) as any[];
+    return result.map(r => ({
+      ...r,
+      ips: r.ips ? r.ips.split(',') : [],
+      rules: [],
+      chains: []
+    }));
+  }
+
+  // Get IP breakdown for a specific device
+  getDeviceIPs(
+    backendId: number,
+    sourceIP: string,
+    limit = 5000,
+    start?: string,
+    end?: string,
+  ): IPStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          m.ip,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections,
+          MAX(m.minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT CASE WHEN m.domain != '' THEN m.domain END) as domains,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIP,
+          GROUP_CONCAT(DISTINCT m.chain) as chains
+        FROM minute_dim_stats m
+        LEFT JOIN ip_stats i ON m.backend_id = i.backend_id AND m.ip = i.ip
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.source_ip = ? AND m.ip != ''
+        GROUP BY m.ip
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        sourceIP,
+        limit,
+      ) as Array<{
+        ip: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        domains: string | null;
+        asn: string | null;
+        geoIP: string | null;
+        chains: string | null;
+      }>;
+      return rows.map(row => ({
+        ...row,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        geoIP: row.geoIP ? JSON.parse(row.geoIP).filter(Boolean) : undefined,
+        asn: row.asn || undefined,
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as IPStats[];
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT 
+        d.ip, 
+        d.total_upload as totalUpload, 
+        d.total_download as totalDownload, 
+        d.total_connections as totalConnections, 
+        d.last_seen as lastSeen,
+        i.domains,
+        COALESCE(i.asn, g.asn) as asn,
+        CASE 
+          WHEN g.country IS NOT NULL THEN 
+            json_array(
+              g.country,
+              COALESCE(g.country_name, g.country),
+              COALESCE(g.city, ''),
+              COALESCE(g.as_name, '')
+            )
+          WHEN i.geoip IS NOT NULL THEN 
+            json(i.geoip)
+          ELSE 
+            NULL
+        END as geoIP
+      FROM device_ip_stats d
+      LEFT JOIN ip_stats i ON d.ip = i.ip AND d.backend_id = i.backend_id
+      LEFT JOIN geoip_cache g ON d.ip = g.ip
+      WHERE d.backend_id = ? AND d.source_ip = ?
+      ORDER BY (d.total_upload + d.total_download) DESC
+      LIMIT ?
+    `);
+    const result = stmt.all(backendId, sourceIP, limit) as any[];
+    return result.map(r => ({
+      ...r,
+      domains: r.domains ? r.domains.split(',') : [],
+      geoIP: r.geoIP ? JSON.parse(r.geoIP).filter(Boolean) : undefined,
+      asn: r.asn || undefined,
+    }));
+  }
+
   // Get top domains for a specific backend
-  getTopDomains(backendId: number, limit = 10): DomainStats[] {
-    return this.getDomainStats(backendId, limit);
+  getTopDomains(backendId: number, limit = 10, start?: string, end?: string): DomainStats[] {
+    return this.getDomainStats(backendId, limit, start, end);
   }
 
   // Get top IPs for a specific backend
-  getTopIPs(backendId: number, limit = 10): IPStats[] {
-    return this.getIPStats(backendId, limit);
+  getTopIPs(backendId: number, limit = 10, start?: string, end?: string): IPStats[] {
+    return this.getIPStats(backendId, limit, start, end);
   }
 
   // Get domain stats with server-side pagination, sorting and search
@@ -1752,11 +2849,14 @@ export class StatsDatabase {
     sortBy?: string;
     sortOrder?: string;
     search?: string;
+    start?: string;
+    end?: string;
   } = {}): { data: DomainStats[]; total: number } {
     const offset = opts.offset ?? 0;
     const limit = Math.min(opts.limit ?? 50, 200);
     const sortOrder = opts.sortOrder === 'asc' ? 'ASC' : 'DESC';
     const search = opts.search?.trim() || '';
+    const range = this.parseMinuteRange(opts.start, opts.end);
 
     const sortColumnMap: Record<string, string> = {
       domain: 'domain',
@@ -1766,6 +2866,77 @@ export class StatsDatabase {
       lastSeen: 'last_seen',
     };
     const sortColumn = sortColumnMap[opts.sortBy || 'totalDownload'] || 'total_download';
+
+    if (range) {
+      const rangeSortColumnMap: Record<string, string> = {
+        domain: 'domain',
+        totalDownload: 'totalDownload',
+        totalUpload: 'totalUpload',
+        totalConnections: 'totalConnections',
+        lastSeen: 'lastSeen',
+      };
+      const rangeSortColumn =
+        rangeSortColumnMap[opts.sortBy || 'totalDownload'] || 'totalDownload';
+
+      const whereSearch = search ? 'AND domain LIKE ?' : '';
+      const baseParams: any[] = [backendId, range.startMinute, range.endMinute];
+      const searchParams: any[] = search ? [`%${search}%`] : [];
+
+      const countStmt = this.db.prepare(`
+        SELECT COUNT(*) as total
+        FROM (
+          SELECT domain
+          FROM minute_dim_stats
+          WHERE backend_id = ? AND minute >= ? AND minute <= ? AND domain != '' ${whereSearch}
+          GROUP BY domain
+        )
+      `);
+      const { total } = countStmt.get(
+        ...baseParams,
+        ...searchParams,
+      ) as { total: number };
+
+      const dataStmt = this.db.prepare(`
+        SELECT
+          domain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT ip) as ips,
+          GROUP_CONCAT(DISTINCT rule) as rules,
+          GROUP_CONCAT(DISTINCT chain) as chains
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND domain != '' ${whereSearch}
+        GROUP BY domain
+        ORDER BY ${rangeSortColumn} ${sortOrder}
+        LIMIT ? OFFSET ?
+      `);
+      const rows = dataStmt.all(
+        ...baseParams,
+        ...searchParams,
+        limit,
+        offset,
+      ) as Array<{
+        domain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        ips: string | null;
+        rules: string | null;
+        chains: string | null;
+      }>;
+
+      const data = rows.map(row => ({
+        ...row,
+        ips: row.ips ? row.ips.split(',').filter(Boolean) : [],
+        rules: row.rules ? row.rules.split(',').filter(Boolean) : [],
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as DomainStats[];
+
+      return { data, total };
+    }
 
     const whereClause = search
       ? 'WHERE backend_id = ? AND domain LIKE ?'
@@ -1815,11 +2986,14 @@ export class StatsDatabase {
     sortBy?: string;
     sortOrder?: string;
     search?: string;
+    start?: string;
+    end?: string;
   } = {}): { data: IPStats[]; total: number } {
     const offset = opts.offset ?? 0;
     const limit = Math.min(opts.limit ?? 50, 200);
     const sortOrder = opts.sortOrder === 'asc' ? 'ASC' : 'DESC';
     const search = opts.search?.trim() || '';
+    const range = this.parseMinuteRange(opts.start, opts.end);
 
     const sortColumnMap: Record<string, string> = {
       ip: 'i.ip',
@@ -1829,6 +3003,110 @@ export class StatsDatabase {
       lastSeen: 'i.last_seen',
     };
     const sortColumn = sortColumnMap[opts.sortBy || 'totalDownload'] || 'i.total_download';
+
+    if (range) {
+      const rangeSortColumnMap: Record<string, string> = {
+        ip: 'agg.ip',
+        totalDownload: 'agg.totalDownload',
+        totalUpload: 'agg.totalUpload',
+        totalConnections: 'agg.totalConnections',
+        lastSeen: 'agg.lastSeen',
+      };
+      const rangeSortColumn =
+        rangeSortColumnMap[opts.sortBy || 'totalDownload'] || 'agg.totalDownload';
+
+      const whereSearch = search
+        ? "AND (ip LIKE ? OR domain LIKE ?)"
+        : "";
+      const baseParams: any[] = [backendId, range.startMinute, range.endMinute];
+      const searchParams: any[] = search
+        ? [`%${search}%`, `%${search}%`]
+        : [];
+
+      const countStmt = this.db.prepare(`
+        SELECT COUNT(*) as total
+        FROM (
+          SELECT ip
+          FROM minute_dim_stats
+          WHERE backend_id = ? AND minute >= ? AND minute <= ? AND ip != '' ${whereSearch}
+          GROUP BY ip
+        )
+      `);
+      const { total } = countStmt.get(
+        ...baseParams,
+        ...searchParams,
+      ) as { total: number };
+
+      const dataStmt = this.db.prepare(`
+        WITH agg AS (
+          SELECT
+            ip,
+            GROUP_CONCAT(DISTINCT CASE WHEN domain != '' THEN domain END) as domains,
+            SUM(upload) as totalUpload,
+            SUM(download) as totalDownload,
+            SUM(connections) as totalConnections,
+            MAX(minute) as lastSeen,
+            GROUP_CONCAT(DISTINCT chain) as chains
+          FROM minute_dim_stats
+          WHERE backend_id = ? AND minute >= ? AND minute <= ? AND ip != '' ${whereSearch}
+          GROUP BY ip
+        )
+        SELECT
+          agg.ip,
+          agg.domains,
+          agg.totalUpload,
+          agg.totalDownload,
+          agg.totalConnections,
+          agg.lastSeen,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIP,
+          agg.chains
+        FROM agg
+        LEFT JOIN ip_stats i ON i.backend_id = ? AND i.ip = agg.ip
+        LEFT JOIN geoip_cache g ON g.ip = agg.ip
+        ORDER BY ${rangeSortColumn} ${sortOrder}
+        LIMIT ? OFFSET ?
+      `);
+      const rows = dataStmt.all(
+        ...baseParams,
+        ...searchParams,
+        backendId,
+        limit,
+        offset,
+      ) as Array<{
+        ip: string;
+        domains: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        asn: string | null;
+        geoIP: string | null;
+        chains: string | null;
+      }>;
+
+      const data = rows.map(row => ({
+        ...row,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        geoIP: row.geoIP ? JSON.parse(row.geoIP).filter(Boolean) : undefined,
+        asn: row.asn || undefined,
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+      })) as IPStats[];
+
+      return { data, total };
+    }
 
     const whereClause = search
       ? "WHERE i.backend_id = ? AND i.ip != '' AND (i.ip LIKE ? OR i.domains LIKE ?)"
@@ -1895,7 +3173,28 @@ export class StatsDatabase {
   }
 
   // Get proxy stats for a specific backend
-  getProxyStats(backendId: number): ProxyStats[] {
+  getProxyStats(backendId: number, start?: string, end?: string): ProxyStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          chain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+        GROUP BY chain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+      `);
+      return stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as ProxyStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT chain, total_upload as totalUpload, total_download as totalDownload, 
              total_connections as totalConnections, last_seen as lastSeen
@@ -1907,7 +3206,29 @@ export class StatsDatabase {
   }
 
   // Get rule stats for a specific backend
-  getRuleStats(backendId: number): RuleStats[] {
+  getRuleStats(backendId: number, start?: string, end?: string): RuleStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          rule,
+          MAX(chain) as finalProxy,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+        GROUP BY rule
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+      `);
+      return stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as RuleStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT rule, final_proxy as finalProxy, total_upload as totalUpload, total_download as totalDownload, 
              total_connections as totalConnections, last_seen as lastSeen
@@ -2023,7 +3344,62 @@ export class StatsDatabase {
   }
 
   // Get summary stats for a specific backend
-  getSummary(backendId: number): { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number } {
+  getSummary(
+    backendId: number,
+    start?: string,
+    end?: string,
+  ): { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number } {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const trafficStmt = this.db.prepare(`
+        SELECT
+          COALESCE(SUM(connections), 0) as connections,
+          COALESCE(SUM(upload), 0) as upload,
+          COALESCE(SUM(download), 0) as download
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ?
+      `);
+      const { connections, upload, download } = trafficStmt.get(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as {
+        connections: number;
+        upload: number;
+        download: number;
+      };
+
+      const domainsStmt = this.db.prepare(`
+        SELECT COUNT(DISTINCT domain) as count
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND domain != ''
+      `);
+      const uniqueDomains = (domainsStmt.get(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as { count: number }).count;
+
+      const ipsStmt = this.db.prepare(`
+        SELECT COUNT(DISTINCT ip) as count
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND ip != ''
+      `);
+      const uniqueIPs = (ipsStmt.get(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as { count: number }).count;
+
+      return {
+        totalConnections: connections,
+        totalUpload: upload,
+        totalDownload: download,
+        uniqueDomains,
+        uniqueIPs,
+      };
+    }
+
     // Calculate totals from ip_stats to include traffic with unknown domains
     const trafficStmt = this.db.prepare(`
       SELECT 
@@ -2059,7 +3435,33 @@ export class StatsDatabase {
   }
 
   // Get per-proxy traffic breakdown for a specific domain
-  getDomainProxyStats(backendId: number, domain: string): ProxyTrafficStats[] {
+  getDomainProxyStats(
+    backendId: number,
+    domain: string,
+    start?: string,
+    end?: string,
+  ): ProxyTrafficStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          chain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND domain = ?
+        GROUP BY chain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+      `);
+      return stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        domain,
+      ) as ProxyTrafficStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT chain,
              total_upload as totalUpload,
@@ -2073,7 +3475,33 @@ export class StatsDatabase {
   }
 
   // Get per-proxy traffic breakdown for a specific IP
-  getIPProxyStats(backendId: number, ip: string): ProxyTrafficStats[] {
+  getIPProxyStats(
+    backendId: number,
+    ip: string,
+    start?: string,
+    end?: string,
+  ): ProxyTrafficStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          chain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND ip = ?
+        GROUP BY chain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+      `);
+      return stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        ip,
+      ) as ProxyTrafficStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT chain,
              total_upload as totalUpload,
@@ -2087,7 +3515,52 @@ export class StatsDatabase {
   }
 
   // Get domains for a specific proxy/node
-  getProxyDomains(backendId: number, chain: string, limit = 50): DomainStats[] {
+  getProxyDomains(
+    backendId: number,
+    chain: string,
+    limit = 50,
+    start?: string,
+    end?: string,
+  ): DomainStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          domain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT ip) as ips
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND chain = ? AND domain != ''
+        GROUP BY domain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        chain,
+        limit,
+      ) as Array<{
+        domain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        ips: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ...row,
+        ips: row.ips ? row.ips.split(',').filter(Boolean) : [],
+        rules: [],
+        chains: [chain],
+      })) as DomainStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT
         dps.domain,
@@ -2120,7 +3593,71 @@ export class StatsDatabase {
   }
 
   // Get IPs for a specific proxy/node
-  getProxyIPs(backendId: number, chain: string, limit = 50): IPStats[] {
+  getProxyIPs(
+    backendId: number,
+    chain: string,
+    limit = 50,
+    start?: string,
+    end?: string,
+  ): IPStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          m.ip,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections,
+          MAX(m.minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT CASE WHEN m.domain != '' THEN m.domain END) as domains,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIP
+        FROM minute_dim_stats m
+        LEFT JOIN ip_stats i ON m.backend_id = i.backend_id AND m.ip = i.ip
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.chain = ? AND m.ip != ''
+        GROUP BY m.ip
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        chain,
+        limit,
+      ) as Array<{
+        ip: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        domains: string | null;
+        asn: string | null;
+        geoIP: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ...row,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        chains: [chain],
+        asn: row.asn || undefined,
+        geoIP: row.geoIP ? JSON.parse(row.geoIP).filter(Boolean) : undefined,
+      })) as IPStats[];
+    }
+
     const stmt = this.db.prepare(`
       SELECT
         ips.ip,
@@ -2182,9 +3719,60 @@ export class StatsDatabase {
     })) as IPStats[];
   }
 
-  // Get domains for a specific rule (by matching rule name in domain_stats.rules)
-  getRuleDomains(backendId: number, rule: string, limit = 50): DomainStats[] {
-    // Query rule_domain_traffic for accurate per-rule domain traffic, join domain_stats for ips/chains
+  // Get domains for a specific rule
+  getRuleDomains(
+    backendId: number,
+    rule: string,
+    limit = 50,
+    start?: string,
+    end?: string,
+  ): DomainStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          domain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections,
+          MAX(minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT ip) as ips,
+          GROUP_CONCAT(DISTINCT chain) as chains
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND rule = ? AND domain != ''
+        GROUP BY domain
+        ORDER BY (SUM(upload) + SUM(download)) DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        rule,
+        limit,
+      ) as Array<{
+        domain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        ips: string | null;
+        chains: string | null;
+      }>;
+
+      return rows.map(row => ({
+        domain: row.domain,
+        totalUpload: row.totalUpload,
+        totalDownload: row.totalDownload,
+        totalConnections: row.totalConnections,
+        lastSeen: row.lastSeen,
+        ips: row.ips ? row.ips.split(',').filter(Boolean) : [],
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+        rules: [rule],
+      })) as DomainStats[];
+    }
+
+    // Query rule_domain_traffic for accurate all-time per-rule domain traffic
     const stmt = this.db.prepare(`
       SELECT
         rdt.domain,
@@ -2223,9 +3811,80 @@ export class StatsDatabase {
     })) as DomainStats[];
   }
 
-  // Get IPs for a specific rule (by matching rule name in ip_stats.rules)
-  getRuleIPs(backendId: number, rule: string, limit = 50): IPStats[] {
-    // Query rule_ip_traffic for accurate per-rule IP traffic, join ip_stats and geoip_cache for metadata
+  // Get IPs for a specific rule
+  getRuleIPs(
+    backendId: number,
+    rule: string,
+    limit = 50,
+    start?: string,
+    end?: string,
+  ): IPStats[] {
+    const range = this.parseMinuteRange(start, end);
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          m.ip,
+          SUM(m.upload) as totalUpload,
+          SUM(m.download) as totalDownload,
+          SUM(m.connections) as totalConnections,
+          MAX(m.minute) as lastSeen,
+          GROUP_CONCAT(DISTINCT CASE WHEN m.domain != '' THEN m.domain END) as domains,
+          GROUP_CONCAT(DISTINCT m.chain) as chains,
+          COALESCE(i.asn, g.asn) as asn,
+          CASE
+            WHEN g.country IS NOT NULL THEN
+              json_array(
+                g.country,
+                COALESCE(g.country_name, g.country),
+                COALESCE(g.city, ''),
+                COALESCE(g.as_name, '')
+              )
+            WHEN i.geoip IS NOT NULL THEN
+              json(i.geoip)
+            ELSE
+              NULL
+          END as geoIPData
+        FROM minute_dim_stats m
+        LEFT JOIN ip_stats i ON m.backend_id = i.backend_id AND m.ip = i.ip
+        LEFT JOIN geoip_cache g ON m.ip = g.ip
+        WHERE m.backend_id = ? AND m.minute >= ? AND m.minute <= ? AND m.rule = ? AND m.ip != ''
+        GROUP BY m.ip
+        ORDER BY (SUM(m.upload) + SUM(m.download)) DESC
+        LIMIT ?
+      `);
+
+      const rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        rule,
+        limit,
+      ) as Array<{
+        ip: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+        lastSeen: string;
+        domains: string | null;
+        chains: string | null;
+        asn: string | null;
+        geoIPData: string | null;
+      }>;
+
+      return rows.map(row => ({
+        ip: row.ip,
+        totalUpload: row.totalUpload,
+        totalDownload: row.totalDownload,
+        totalConnections: row.totalConnections,
+        lastSeen: row.lastSeen,
+        domains: row.domains ? row.domains.split(',').filter(Boolean) : [],
+        chains: row.chains ? row.chains.split(',').filter(Boolean) : [],
+        asn: row.asn || undefined,
+        geoIP: row.geoIPData ? JSON.parse(row.geoIPData).filter(Boolean) : undefined,
+      })) as IPStats[];
+    }
+
+    // Query rule_ip_traffic for accurate all-time per-rule IP traffic
     const stmt = this.db.prepare(`
       SELECT
         rit.ip,
@@ -2281,34 +3940,97 @@ export class StatsDatabase {
   }
 
   // Get rule chain flow for visualization
-  getRuleChainFlow(backendId: number, rule: string): { nodes: Array<{ name: string; totalUpload: number; totalDownload: number; totalConnections: number }>; links: Array<{ source: number; target: number }> } {
-    // Query rule_chain_traffic for accurate per-rule chain flow data
-    const stmt = this.db.prepare(`
-      SELECT chain, total_upload as totalUpload, total_download as totalDownload, total_connections as totalConnections
-      FROM rule_chain_traffic
-      WHERE backend_id = ? AND rule = ?
-    `);
-
-    const rows = stmt.all(backendId, rule) as Array<{
+  getRuleChainFlow(
+    backendId: number,
+    rule: string,
+    start?: string,
+    end?: string,
+  ): { nodes: Array<{ name: string; totalUpload: number; totalDownload: number; totalConnections: number }>; links: Array<{ source: number; target: number }> } {
+    const range = this.parseMinuteRange(start, end);
+    let rows: Array<{
       chain: string;
       totalUpload: number;
       totalDownload: number;
       totalConnections: number;
     }>;
 
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          chain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND rule = ? AND chain != ''
+        GROUP BY chain
+      `);
+      rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+        rule,
+      ) as Array<{
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+
+      const baselineStmt = this.db.prepare(`
+        SELECT
+          rule,
+          chain,
+          total_upload as totalUpload,
+          total_download as totalDownload,
+          total_connections as totalConnections
+        FROM rule_chain_traffic
+        WHERE backend_id = ? AND rule = ?
+      `);
+      const baselineRows = baselineStmt.all(backendId, rule) as Array<{
+        rule: string;
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+      const remapped = this.remapRangeRowsToFullChains(
+        rows.map(r => ({
+          rule,
+          chain: r.chain,
+          totalUpload: r.totalUpload,
+          totalDownload: r.totalDownload,
+          totalConnections: r.totalConnections,
+        })),
+        baselineRows,
+      );
+      rows = remapped.map(r => ({
+        chain: r.chain,
+        totalUpload: r.totalUpload,
+        totalDownload: r.totalDownload,
+        totalConnections: r.totalConnections,
+      }));
+    } else {
+      // No time range: use cumulative table for fast query.
+      const stmt = this.db.prepare(`
+        SELECT chain, total_upload as totalUpload, total_download as totalDownload, total_connections as totalConnections
+        FROM rule_chain_traffic
+        WHERE backend_id = ? AND rule = ?
+      `);
+      rows = stmt.all(backendId, rule) as Array<{
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+    }
+
     const nodeMap = new Map<string, { name: string; totalUpload: number; totalDownload: number; totalConnections: number }>();
     const linkSet = new Set<string>();
 
     for (const row of rows) {
-      // chain is stored as "proxy > group > rule" - parse and reverse to "rule > group > proxy"
-      const chainParts = row.chain.split(' > ').map(p => p.trim()).filter(Boolean);
-      if (chainParts.length === 0) continue;
-
-      // Find the rule in the chain and reverse the flow
-      const ruleIndex = chainParts.findIndex(part => part === rule);
-      if (ruleIndex === -1) continue;
-
-      const flowPath = chainParts.slice(0, ruleIndex + 1).reverse();
+      const flowPath = this.buildRuleFlowPath(rule, row.chain);
+      if (flowPath.length < 2) continue;
 
       for (let i = 0; i < flowPath.length; i++) {
         const nodeName = flowPath[i];
@@ -2338,26 +4060,84 @@ export class StatsDatabase {
   }
 
   // Get all rule chain flows merged into a unified DAG
-  getAllRuleChainFlows(backendId: number): {
+  getAllRuleChainFlows(
+    backendId: number,
+    start?: string,
+    end?: string,
+  ): {
     nodes: Array<{ name: string; layer: number; nodeType: 'rule' | 'group' | 'proxy'; totalUpload: number; totalDownload: number; totalConnections: number; rules: string[] }>;
     links: Array<{ source: number; target: number; rules: string[] }>;
     rulePaths: Record<string, { nodeIndices: number[]; linkIndices: number[] }>;
     maxLayer: number;
   } {
-    // Query rule_chain_traffic for accurate per-rule data
-    const stmt = this.db.prepare(`
-      SELECT rule, chain, total_upload as totalUpload, total_download as totalDownload, total_connections as totalConnections
-      FROM rule_chain_traffic
-      WHERE backend_id = ?
-    `);
-
-    const rows = stmt.all(backendId) as Array<{
+    const range = this.parseMinuteRange(start, end);
+    let rows: Array<{
       rule: string;
       chain: string;
       totalUpload: number;
       totalDownload: number;
       totalConnections: number;
     }>;
+
+    if (range) {
+      const stmt = this.db.prepare(`
+        SELECT
+          rule,
+          chain,
+          SUM(upload) as totalUpload,
+          SUM(download) as totalDownload,
+          SUM(connections) as totalConnections
+        FROM minute_dim_stats
+        WHERE backend_id = ? AND minute >= ? AND minute <= ? AND rule != '' AND chain != ''
+        GROUP BY rule, chain
+        ORDER BY rule, chain
+      `);
+      rows = stmt.all(
+        backendId,
+        range.startMinute,
+        range.endMinute,
+      ) as Array<{
+        rule: string;
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+
+      const baselineStmt = this.db.prepare(`
+        SELECT
+          rule,
+          chain,
+          total_upload as totalUpload,
+          total_download as totalDownload,
+          total_connections as totalConnections
+        FROM rule_chain_traffic
+        WHERE backend_id = ?
+      `);
+      const baselineRows = baselineStmt.all(backendId) as Array<{
+        rule: string;
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+      rows = this.remapRangeRowsToFullChains(rows, baselineRows);
+    } else {
+      // No time range: use cumulative table for fast query.
+      const stmt = this.db.prepare(`
+        SELECT rule, chain, total_upload as totalUpload, total_download as totalDownload, total_connections as totalConnections
+        FROM rule_chain_traffic
+        WHERE backend_id = ?
+        ORDER BY rule, chain
+      `);
+      rows = stmt.all(backendId) as Array<{
+        rule: string;
+        chain: string;
+        totalUpload: number;
+        totalDownload: number;
+        totalConnections: number;
+      }>;
+    }
 
     // nodeMap: name -> { stats + rules set + max layer }
     const nodeMap = new Map<string, {
@@ -2377,14 +4157,7 @@ export class StatsDatabase {
         rulePathLinks.set(rule, new Set());
       }
 
-      const chainParts = row.chain.split(' > ').map(p => p.trim()).filter(Boolean);
-      if (chainParts.length === 0) continue;
-
-      const ruleIndex = chainParts.findIndex(part => part === rule);
-      if (ruleIndex === -1) continue;
-
-      // Chain stored as: proxy > ... > rule, reverse to: rule > ... > proxy
-      const flowPath = chainParts.slice(0, ruleIndex + 1).reverse();
+      const flowPath = this.buildRuleFlowPath(rule, row.chain);
       if (flowPath.length < 2) continue;
 
       for (let i = 0; i < flowPath.length; i++) {
@@ -2442,8 +4215,21 @@ export class StatsDatabase {
       }
     }
 
+    // Stable ordering is important to avoid unnecessary ReactFlow relayout/flicker.
+    const nodeTypeOrder = (type: 'rule' | 'group' | 'proxy'): number => {
+      if (type === 'rule') return 0;
+      if (type === 'group') return 1;
+      return 2;
+    };
+    const sortedNodeEntries = [...nodeEntries].sort(([nameA, dataA], [nameB, dataB]) => {
+      if (dataA.layer !== dataB.layer) return dataA.layer - dataB.layer;
+      const typeDiff = nodeTypeOrder(nodeTypeMap.get(nameA)!) - nodeTypeOrder(nodeTypeMap.get(nameB)!);
+      if (typeDiff !== 0) return typeDiff;
+      return nameA.localeCompare(nameB);
+    });
+
     // Convert to arrays
-    const nodes = nodeEntries.map(([name, data]) => ({
+    const nodes = sortedNodeEntries.map(([name, data]) => ({
       name,
       layer: data.layer,
       nodeType: nodeTypeMap.get(name)!,
@@ -2455,7 +4241,9 @@ export class StatsDatabase {
 
     const nodeIndexMap = new Map(nodes.map((n, i) => [n.name, i]));
 
-    const links = Array.from(linkMap.entries()).map(([key, rules]) => {
+    const links = Array.from(linkMap.entries())
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+      .map(([key, rules]) => {
       const [sourceName, targetName] = key.split('|');
       return {
         source: nodeIndexMap.get(sourceName)!,
@@ -2508,6 +4296,8 @@ export class StatsDatabase {
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE backend_id = ?`).run(backendId);
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
+        this.db.prepare(`DELETE FROM minute_dim_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM minute_country_stats WHERE backend_id = ?`).run(backendId);
         // Also clean old connection_logs if any remain from before migration
         this.db.prepare(`DELETE FROM connection_logs WHERE backend_id = ?`).run(backendId);
 
@@ -2539,6 +4329,11 @@ export class StatsDatabase {
         this.db.prepare(`DELETE FROM domain_proxy_stats WHERE backend_id = ?`).run(backendId);
         this.db.prepare(`DELETE FROM ip_proxy_stats WHERE backend_id = ?`).run(backendId);
 
+        // Clear device stats
+        this.db.prepare(`DELETE FROM device_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM device_domain_stats WHERE backend_id = ?`).run(backendId);
+        this.db.prepare(`DELETE FROM device_ip_stats WHERE backend_id = ?`).run(backendId);
+
         // Clear hourly stats (used for today traffic)
         this.db.prepare(`DELETE FROM hourly_stats WHERE backend_id = ?`).run(backendId);
       } else {
@@ -2547,6 +4342,8 @@ export class StatsDatabase {
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE backend_id = ? AND minute < ?`).run(backendId, minuteCutoff);
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
+        this.db.prepare(`DELETE FROM minute_dim_stats WHERE backend_id = ? AND minute < ?`).run(backendId, minuteCutoff);
+        this.db.prepare(`DELETE FROM minute_country_stats WHERE backend_id = ? AND minute < ?`).run(backendId, minuteCutoff);
         // Also clean old connection_logs if any remain
         this.db.prepare(`DELETE FROM connection_logs WHERE backend_id = ? AND timestamp < ?`).run(backendId, cutoff.toISOString());
         // domain_proxy_stats and ip_proxy_stats are permanent aggregation tables (no time-based cleanup)
@@ -2558,6 +4355,8 @@ export class StatsDatabase {
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats`).run();
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
+        this.db.prepare(`DELETE FROM minute_dim_stats`).run();
+        this.db.prepare(`DELETE FROM minute_country_stats`).run();
         // Also clean old connection_logs if any remain
         this.db.prepare(`DELETE FROM connection_logs`).run();
 
@@ -2589,6 +4388,11 @@ export class StatsDatabase {
         this.db.prepare(`DELETE FROM domain_proxy_stats`).run();
         this.db.prepare(`DELETE FROM ip_proxy_stats`).run();
 
+        // Clear device stats
+        this.db.prepare(`DELETE FROM device_stats`).run();
+        this.db.prepare(`DELETE FROM device_domain_stats`).run();
+        this.db.prepare(`DELETE FROM device_ip_stats`).run();
+
         // Clear hourly stats (used for today traffic)
         this.db.prepare(`DELETE FROM hourly_stats`).run();
       } else {
@@ -2597,6 +4401,8 @@ export class StatsDatabase {
         const minuteResult = this.db.prepare(`DELETE FROM minute_stats WHERE minute < ?`).run(minuteCutoff);
         deletedConnections = minuteResult.changes;
         deletedLogs = minuteResult.changes;
+        this.db.prepare(`DELETE FROM minute_dim_stats WHERE minute < ?`).run(minuteCutoff);
+        this.db.prepare(`DELETE FROM minute_country_stats WHERE minute < ?`).run(minuteCutoff);
         // Also clean old connection_logs if any remain
         this.db.prepare(`DELETE FROM connection_logs WHERE timestamp < ?`).run(cutoff.toISOString());
         // domain_proxy_stats and ip_proxy_stats are permanent aggregation tables (no time-based cleanup)
@@ -2842,8 +4648,13 @@ export class StatsDatabase {
       this.db.prepare(`DELETE FROM hourly_stats WHERE backend_id = ?`).run(id);
       this.db.prepare(`DELETE FROM connection_logs WHERE backend_id = ?`).run(id);
       this.db.prepare(`DELETE FROM minute_stats WHERE backend_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM minute_dim_stats WHERE backend_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM minute_country_stats WHERE backend_id = ?`).run(id);
       this.db.prepare(`DELETE FROM domain_proxy_stats WHERE backend_id = ?`).run(id);
       this.db.prepare(`DELETE FROM ip_proxy_stats WHERE backend_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM device_stats WHERE backend_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM device_domain_stats WHERE backend_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM device_ip_stats WHERE backend_id = ?`).run(id);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -2902,6 +4713,8 @@ export class StatsDatabase {
     const stmt = this.db.prepare(`
       DELETE FROM minute_stats WHERE minute < ?
     `);
+    this.db.prepare(`DELETE FROM minute_dim_stats WHERE minute < ?`).run(minuteCutoff);
+    this.db.prepare(`DELETE FROM minute_country_stats WHERE minute < ?`).run(minuteCutoff);
     // Also clean old connection_logs if any remain from before migration
     this.db.prepare(`DELETE FROM connection_logs WHERE timestamp < ?`).run(cutoff);
     return stmt.run(minuteCutoff).changes;

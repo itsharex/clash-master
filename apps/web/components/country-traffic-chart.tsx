@@ -5,34 +5,13 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Globe, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CountryFlag } from "@/components/country-flag";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
 interface CountryTrafficChartProps {
   data: CountryStats[];
 }
-
-// Country flag emoji mapping
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "🇺🇸",
-  CN: "🇨🇳",
-  JP: "🇯🇵",
-  SG: "🇸🇬",
-  HK: "🇭🇰",
-  TW: "🇹🇼",
-  KR: "🇰🇷",
-  GB: "🇬🇧",
-  DE: "🇩🇪",
-  FR: "🇫🇷",
-  NL: "🇳🇱",
-  CA: "🇨🇦",
-  AU: "🇦🇺",
-  IN: "🇮🇳",
-  BR: "🇧🇷",
-  RU: "🇷🇺",
-  LOCAL: "🏠",
-  Unknown: "❓",
-};
 
 // Continent colors
 const CONTINENT_COLORS: Record<string, string> = {
@@ -45,11 +24,6 @@ const CONTINENT_COLORS: Record<string, string> = {
   LOCAL: "#6B7280", // Local - Gray
   Unknown: "#9CA3AF", // Unknown - Gray
 };
-
-// Get flag for country
-function getCountryFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS[country.toUpperCase()] || "🌐";
-}
 
 // Get color for continent
 function getContinentColor(continent: string): string {
@@ -65,7 +39,6 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
     return data.map((country) => ({
       name: country.countryName || country.country,
       code: country.country,
-      flag: getCountryFlag(country.country),
       value: country.totalDownload + country.totalUpload,
       download: country.totalDownload,
       upload: country.totalUpload,
@@ -85,7 +58,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
       return (
         <div className="glass-card p-3 rounded-lg border shadow-lg">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">{item.flag}</span>
+            <CountryFlag country={item.code} className="h-4 w-6" />
             <span className="font-medium text-sm">{item.name}</span>
           </div>
           <div className="space-y-1 text-xs">
@@ -155,7 +128,7 @@ export function CountryTrafficChart({ data }: CountryTrafficChartProps) {
               >
                 {/* Header: Flag + Name */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">{item.flag}</span>
+                  <CountryFlag country={item.code} className="h-4 w-6" />
                   <p className="font-medium text-sm truncate" title={item.name}>
                     {item.name}
                   </p>

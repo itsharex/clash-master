@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Link2, ArrowDown, ArrowUp } from "lucide-react";
+import { CountryFlag } from "@/components/country-flag";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
@@ -9,25 +10,12 @@ interface CountryTrafficListProps {
   data: CountryStats[];
 }
 
-// Country flag emoji mapping
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "🇺🇸", CN: "🇨🇳", JP: "🇯🇵", SG: "🇸🇬", HK: "🇭🇰",
-  TW: "🇹🇼", KR: "🇰🇷", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷",
-  NL: "🇳🇱", CA: "🇨🇦", AU: "🇦🇺", IN: "🇮🇳", BR: "🇧🇷",
-  RU: "🇷🇺", SE: "🇸🇪", CH: "🇨🇭", IL: "🇮🇱", LOCAL: "🏠",
-  Unknown: "❓",
-};
-
 // Continent colors
 const CONTINENT_COLORS: Record<string, string> = {
   AS: "#F59E0B", NA: "#3B82F6", EU: "#8B5CF6",
   SA: "#10B981", AF: "#EF4444", OC: "#06B6D4",
   LOCAL: "#6B7280", Unknown: "#9CA3AF",
 };
-
-function getCountryFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS[country.toUpperCase()] || "🌐";
-}
 
 function getContinentColor(continent: string): string {
   return CONTINENT_COLORS[continent] || CONTINENT_COLORS.Unknown;
@@ -40,7 +28,6 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
       .filter(c => c.country !== "LOCAL" && c.country !== "Unknown")
       .map((country) => ({
         ...country,
-        flag: getCountryFlag(country.country),
         color: getContinentColor(country.continent),
         total: country.totalDownload + country.totalUpload,
       }))
@@ -73,7 +60,7 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
           >
             {/* Header: Flag + Name */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xl">{country.flag}</span>
+              <CountryFlag country={country.country} className="h-4 w-6" />
               <p className="font-medium text-sm truncate" title={country.countryName}>
                 {country.countryName || country.country}
               </p>

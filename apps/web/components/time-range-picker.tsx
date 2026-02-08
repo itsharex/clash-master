@@ -1,23 +1,36 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Calendar, Clock, ChevronDown, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Calendar as CalendarIcon,
+  ChevronDown,
+  Clock,
+  RotateCcw,
+} from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { enUS, zhCN } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import {
-  formatDateTimeForInput,
-  formatDateTimeDisplay,
-  getPresetTimeRange,
-  type TimeRange,
-} from "@/lib/api";
+import { getPresetTimeRange, type TimeRange } from "@/lib/api";
 
-type PresetType = '7d' | '30d' | '24h' | 'today' | 'custom';
+type PresetType =
+  | "1m"
+  | "5m"
+  | "15m"
+  | "30m"
+  | "24h"
+  | "7d"
+  | "30d"
+  | "today"
+  | "custom";
 
 interface TimeRangePickerProps {
   value: TimeRange;
@@ -25,175 +38,411 @@ interface TimeRangePickerProps {
   className?: string;
 }
 
-const PRESETS: { value: PresetType; label: string }[] = [
-  { value: '24h', label: '最近24小时' },
-  { value: '7d', label: '最近7天' },
-  { value: '30d', label: '最近30天' },
-  { value: 'today', label: '今天' },
-  { value: 'custom', label: '自定义' },
-];
+function toLocalTimeInputValue(date: Date): string {
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
 
-export function TimeRangePicker({ value, onChange, className }: TimeRangePickerProps) {
+function mergeDateAndTime(date: Date, time: string): Date {
+  const [hour, minute] = time.split(":").map((v) => parseInt(v || "0", 10));
+  const next = new Date(date);
+  next.setHours(hour || 0, minute || 0, 0, 0);
+  return next;
+}
+
+function inferPresetFromRange(range: TimeRange): PresetType {
+  const start = new Date(range.start);
+  const end = new Date(range.end);
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    start > end
+  ) {
+    return "custom";
+  }
+
+  const diffMin = Math.round((end.getTime() - start.getTime()) / 60000);
+  if (diffMin === 1) return "1m";
+  if (diffMin === 5) return "5m";
+  if (diffMin === 15) return "15m";
+  if (diffMin === 30) return "30m";
+  if (diffMin === 24 * 60) return "24h";
+  if (diffMin === 7 * 24 * 60) return "7d";
+  if (diffMin === 30 * 24 * 60) return "30d";
+
+  const isToday =
+    start.getHours() === 0 &&
+    start.getMinutes() === 0 &&
+    start.getSeconds() === 0 &&
+    start.getMilliseconds() === 0 &&
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  if (isToday) return "today";
+
+  return "custom";
+}
+
+function formatDateButton(
+  date: Date | undefined,
+  localeCode: string,
+  fallbackText: string,
+): string {
+  if (!date) return fallbackText;
+  return date.toLocaleDateString(localeCode, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatDateTimeDisplayByLocale(
+  isoString: string,
+  localeCode: string,
+): string {
+  const date = new Date(isoString);
+  return date.toLocaleString(localeCode, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function TimeRangePicker({
+  value,
+  onChange,
+  className,
+}: TimeRangePickerProps) {
+  const locale = useLocale();
+  const t = useTranslations("timeRangePicker");
+  const localeCode = locale.startsWith("zh") ? "zh-CN" : "en-US";
+  const calendarLocale = locale.startsWith("zh") ? zhCN : enUS;
+  const showDebugShortPresets = process.env.NODE_ENV !== "production";
+
+  const quickPresets = useMemo<
+    Array<{ value: Exclude<PresetType, "custom">; label: string }>
+  >(() => {
+    const stablePresets: Array<{
+      value: Exclude<PresetType, "custom">;
+      label: string;
+    }> = [
+      { value: "30m", label: t("preset.30m") },
+      { value: "24h", label: t("preset.24h") },
+      { value: "7d", label: t("preset.7d") },
+      { value: "30d", label: t("preset.30d") },
+      { value: "today", label: t("preset.today") },
+    ];
+
+    if (!showDebugShortPresets) return stablePresets;
+
+    return [
+      { value: "1m", label: t("preset.1m") },
+      { value: "5m", label: t("preset.5m") },
+      { value: "15m", label: t("preset.15m") },
+      ...stablePresets,
+    ];
+  }, [showDebugShortPresets, t]);
+
   const [open, setOpen] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<PresetType>('24h');
-  const [customStart, setCustomStart] = useState(value.start.slice(0, 16));
-  const [customEnd, setCustomEnd] = useState(value.end.slice(0, 16));
+  const [openFromDate, setOpenFromDate] = useState(false);
+  const [openToDate, setOpenToDate] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<PresetType>(
+    inferPresetFromRange(value),
+  );
 
-  // Update custom inputs when value changes externally
+  const [fromDate, setFromDate] = useState<Date | undefined>();
+  const [toDate, setToDate] = useState<Date | undefined>();
+  const [fromTime, setFromTime] = useState("00:00");
+  const [toTime, setToTime] = useState("23:59");
+
+  const syncDraftFromValue = () => {
+    const start = new Date(value.start);
+    const end = new Date(value.end);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      setFromDate(start);
+      setToDate(end);
+      setFromTime(toLocalTimeInputValue(start));
+      setToTime(toLocalTimeInputValue(end));
+    }
+    const inferredPreset = inferPresetFromRange(value);
+    const normalizedPreset =
+      !showDebugShortPresets &&
+      (inferredPreset === "1m" ||
+        inferredPreset === "5m" ||
+        inferredPreset === "15m")
+        ? "custom"
+        : inferredPreset;
+    setSelectedPreset(normalizedPreset);
+  };
+
+  // Initialize or refresh draft only when panel is closed, so auto-refresh won't
+  // overwrite user input while editing custom range.
   useEffect(() => {
-    setCustomStart(value.start.slice(0, 16));
-    setCustomEnd(value.end.slice(0, 16));
+    if (open) return;
+    syncDraftFromValue();
   }, [value]);
 
-  const handlePresetClick = (preset: PresetType) => {
+  // When opening picker, take a snapshot from latest external value once.
+  useEffect(() => {
+    if (!open) return;
+    syncDraftFromValue();
+  }, [open]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const desktopDisplayText = useMemo(() => {
+    if (selectedPreset === "custom") {
+      return `${formatDateTimeDisplayByLocale(value.start, localeCode)} - ${formatDateTimeDisplayByLocale(value.end, localeCode)}`;
+    }
+    const match = quickPresets.find((p) => p.value === selectedPreset);
+    if (!match) return t("defaultRange");
+    if (match.value === "today") return t("today");
+    return `${t("recentPrefix")} ${match.label}`;
+  }, [selectedPreset, value.start, value.end, localeCode, quickPresets, t]);
+
+  const mobileDisplayText = useMemo(() => {
+    if (selectedPreset === "custom") {
+      return t("customShort");
+    }
+    const match = quickPresets.find((p) => p.value === selectedPreset);
+    if (!match) return t("preset.24h");
+    if (match.value === "today") return t("today");
+    return match.label;
+  }, [selectedPreset, quickPresets, t]);
+
+  const applyQuickPreset = (preset: Exclude<PresetType, "custom">) => {
     setSelectedPreset(preset);
-    if (preset !== 'custom') {
-      const range = getPresetTimeRange(preset);
-      onChange(range, preset);
-      setOpen(false);
-    }
-  };
-
-  const handleCustomApply = () => {
-    const range: TimeRange = {
-      start: new Date(customStart).toISOString(),
-      end: new Date(customEnd).toISOString(),
-    };
-    onChange(range, 'custom');
+    const next = getPresetTimeRange(preset);
+    onChange(next, preset);
     setOpen(false);
   };
 
-  const handleClear = () => {
-    const range = getPresetTimeRange('24h');
-    setSelectedPreset('24h');
-    onChange(range, '24h');
+  const applyCustom = () => {
+    if (!fromDate || !toDate) return;
+    const start = mergeDateAndTime(fromDate, fromTime);
+    const end = mergeDateAndTime(toDate, toTime);
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      start > end
+    ) {
+      return;
+    }
+    onChange({ start: start.toISOString(), end: end.toISOString() }, "custom");
+    setSelectedPreset("custom");
     setOpen(false);
   };
 
-  const displayText = () => {
-    if (selectedPreset === 'custom') {
-      return `${formatDateTimeDisplay(value.start)} - ${formatDateTimeDisplay(value.end)}`;
-    }
-    const preset = PRESETS.find(p => p.value === selectedPreset);
-    return preset?.label || '最近24小时';
+  const resetToDefault = () => {
+    const next = getPresetTimeRange("24h");
+    onChange(next, "24h");
+    setSelectedPreset("24h");
+    setOpen(false);
   };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           className={cn(
-            "justify-between min-w-[200px] bg-background/50 backdrop-blur-sm",
-            className
-          )}
-        >
-          <span className="flex items-center gap-2">
+            "h-9 w-[138px] sm:w-[152px] justify-between rounded-xl border-0 bg-secondary/45 px-3 text-sm shadow-none hover:bg-secondary/65",
+            className,
+          )}>
+          <span className="flex min-w-0 items-center gap-2">
             <Clock className="w-4 h-4 text-muted-foreground" />
-            <span className="truncate">{displayText()}</span>
+            <span className="truncate sm:hidden">{mobileDisplayText}</span>
+            <span className="hidden truncate sm:inline">{desktopDisplayText}</span>
           </span>
           <ChevronDown className="w-4 h-4 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="end">
-        <Card className="border-0 shadow-none">
-          <div className="p-3 space-y-3">
-            {/* Preset Buttons */}
-            <div className="grid grid-cols-2 gap-2">
-              {PRESETS.map((preset) => (
+
+      <PopoverContent
+        className="w-[calc(100vw-2rem)] sm:w-[352px] max-w-[calc(100vw-1rem)] rounded-xl border border-border/60 bg-card p-4 shadow-xs space-y-4"
+        align={isMobile ? "center" : "end"}
+        sideOffset={8}
+        collisionPadding={12}>
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground ">
+            {t("quickRange")}
+          </Label>
+          <div className="grid grid-cols-4 gap-2 mt-3">
+            {quickPresets.map((preset) => {
+              const active = selectedPreset === preset.value;
+              return (
                 <Button
                   key={preset.value}
-                  variant={selectedPreset === preset.value ? "default" : "outline"}
                   size="sm"
-                  onClick={() => handlePresetClick(preset.value)}
-                  className="justify-start"
-                >
+                  variant="outline"
+                  className={cn(
+                    "rounded-full transition-colors",
+                    active
+                      ? "bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-500/90 hover:text-white"
+                      : "bg-secondary/50 border-border/70 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                  onClick={() => applyQuickPreset(preset.value)}>
                   {preset.label}
                 </Button>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+        </div>
 
-            {/* Custom Range Inputs */}
-            {selectedPreset === 'custom' && (
-              <div className="space-y-3 pt-2 border-t border-border">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    开始时间
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={customStart}
-                    onChange={(e) => setCustomStart(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    结束时间
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={customEnd}
-                    onChange={(e) => setCustomEnd(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div className="flex gap-2">
+        <div className="space-y-3 border-t border-border pt-3">
+          <div className="text-xs text-muted-foreground">
+            {t("customRange")}
+          </div>
+
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <div className="space-y-2">
+              <Label htmlFor="time-range-from-date" className="text-xs">
+                {t("startDate")}
+              </Label>
+              <Popover open={openFromDate} onOpenChange={setOpenFromDate}>
+                <PopoverTrigger asChild>
                   <Button
-                    size="sm"
-                    className="flex-1"
-                    onClick={handleCustomApply}
-                  >
-                    应用
-                  </Button>
-                  <Button
-                    size="sm"
+                    id="time-range-from-date"
                     variant="outline"
-                    onClick={handleClear}
-                  >
-                    <X className="w-4 h-4" />
+                    className="w-full justify-between font-normal">
+                    {formatDateButton(fromDate, localeCode, t("pickDate"))}
+                    <CalendarIcon className="w-4 h-4 text-muted-foreground" />
                   </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Current Selection Info */}
-            <div className="pt-2 border-t border-border text-xs text-muted-foreground">
-              <div className="flex justify-between">
-                <span>开始:</span>
-                <span className="font-mono">{formatDateTimeDisplay(value.start)}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span>结束:</span>
-                <span className="font-mono">{formatDateTimeDisplay(value.end)}</span>
-              </div>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto overflow-hidden rounded-xl border border-border/60 bg-card p-0 shadow-xs z-[80]"
+                  align="start"
+                  sideOffset={6}
+                  collisionPadding={12}>
+                  <Calendar
+                    locale={calendarLocale}
+                    mode="single"
+                    selected={fromDate}
+                    onSelect={(date) => {
+                      setFromDate(date);
+                      setOpenFromDate(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="time-range-from-time" className="text-xs">
+                {t("time")}
+              </Label>
+              <Input
+                id="time-range-from-time"
+                type="time"
+                step={60}
+                value={fromTime}
+                onChange={(e) => setFromTime(e.target.value)}
+                className="bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+              />
             </div>
           </div>
-        </Card>
+
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <div className="space-y-2">
+              <Label htmlFor="time-range-to-date" className="text-xs">
+                {t("endDate")}
+              </Label>
+              <Popover open={openToDate} onOpenChange={setOpenToDate}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="time-range-to-date"
+                    variant="outline"
+                    className="w-full justify-between font-normal">
+                    {formatDateButton(toDate, localeCode, t("pickDate"))}
+                    <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto overflow-hidden rounded-xl border border-border/60 bg-card p-0 shadow-xs z-[80]"
+                  align="start"
+                  sideOffset={6}
+                  collisionPadding={12}>
+                  <Calendar
+                    locale={calendarLocale}
+                    mode="single"
+                    selected={toDate}
+                    disabled={fromDate ? { before: fromDate } : undefined}
+                    onSelect={(date) => {
+                      setToDate(date);
+                      setOpenToDate(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="time-range-to-time" className="text-xs">
+                {t("time")}
+              </Label>
+              <Input
+                id="time-range-to-time"
+                type="time"
+                step={60}
+                value={toTime}
+                onChange={(e) => setToTime(e.target.value)}
+                className="bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              className="flex-1 bg-blue-600 hover:bg-blue-600/90 text-white"
+              onClick={applyCustom}>
+              {t("applyCustom")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={resetToDefault}>
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );
 }
 
-// Quick preset buttons for common ranges
-export function QuickTimePresets({ onChange }: { onChange: (range: TimeRange) => void }) {
+export function QuickTimePresets({
+  onChange,
+}: {
+  onChange: (range: TimeRange) => void;
+}) {
   const presets = [
-    { label: '24小时', range: getPresetTimeRange('24h') },
-    { label: '7天', range: getPresetTimeRange('7d') },
-    { label: '30天', range: getPresetTimeRange('30d') },
+    ...(process.env.NODE_ENV !== "production"
+      ? [
+          { label: "1m", range: getPresetTimeRange("1m") },
+          { label: "5m", range: getPresetTimeRange("5m") },
+          { label: "15m", range: getPresetTimeRange("15m") },
+        ]
+      : []),
+    { label: "30m", range: getPresetTimeRange("30m") },
+    { label: "24h", range: getPresetTimeRange("24h") },
+    { label: "7d", range: getPresetTimeRange("7d") },
+    { label: "30d", range: getPresetTimeRange("30d") },
   ];
 
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       {presets.map((preset) => (
         <Button
           key={preset.label}
           variant="outline"
           size="sm"
-          onClick={() => onChange(preset.range)}
-        >
+          className="rounded-full"
+          onClick={() => onChange(preset.range)}>
           {preset.label}
         </Button>
       ))}

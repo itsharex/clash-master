@@ -7,6 +7,7 @@
     "overview": "Overview",
     "domains": "Domains",
     "countries": "Regions",
+    "devices": "Devices",
     "proxies": "Proxies",
     "rules": "Rules",
     "network": "Network",
@@ -35,7 +36,36 @@
     "hoursAgo": "{hours}h ago",
     "daysAgo": "{days}d ago",
     "autoRefresh": "Auto Refresh",
-    "paused": "Paused"
+    "paused": "Paused",
+    "clickToPause": "Click to pause auto refresh",
+    "clickToResume": "Click to resume auto refresh",
+    "backendHealthy": "Backend healthy",
+    "backendUnavailable": "Backend unavailable",
+    "backendUnavailableHint": "Data collection is interrupted. Please check backend connectivity.",
+    "backendStatusUnknown": "Backend status unknown"
+  },
+  "timeRangePicker": {
+    "quickRange": "Quick Range",
+    "customRange": "Custom Range",
+    "customShort": "Custom",
+    "startDate": "Start Date",
+    "endDate": "End Date",
+    "time": "Time",
+    "applyCustom": "Apply",
+    "pickDate": "Pick date",
+    "recentPrefix": "Last",
+    "today": "Today",
+    "defaultRange": "Last 24h",
+    "preset": {
+      "1m": "1m",
+      "5m": "5m",
+      "15m": "15m",
+      "30m": "30m",
+      "24h": "24h",
+      "7d": "7d",
+      "30d": "30d",
+      "today": "Today"
+    }
   },
   "stats": {
     "totalDownload": "Total Download",
@@ -50,9 +80,20 @@
     "domains": "Domains",
     "rules": "Rules",
     "today": "Today",
+    "rangeInsight": "Range Insight",
+    "comparePrevRange": "vs Previous Same Range",
+    "downloadDelta": "Download Delta",
+    "uploadDelta": "Upload Delta",
+    "connectionsDelta": "Conn Delta",
+    "peakRate": "Peak Traffic",
+    "peakDownload": "Peak Download",
+    "peakUpload": "Peak Upload",
+    "perMin": "min",
+    "perDay": "day",
     "download": "Download",
     "upload": "Upload",
-    "tracked": "tracked"
+    "tracked": "tracked",
+    "unavailable": "Waiting for backend"
   },
   "chart": {
     "trafficHistory": "Traffic History (24h)",
@@ -68,6 +109,7 @@
     "totalUpload": "Total UL",
     "total": "Total",
     "noData": "No data",
+    "noDataHint": "Try switching to a shorter range or wait for new traffic.",
     "loading": "Loading..."
   },
   "topDomains": {
@@ -76,19 +118,25 @@
     "sortByTraffic": "Sort by traffic",
     "sortByConnections": "Sort by connections",
     "viewAll": "View all",
-    "connections": "connections"
+    "connections": "connections",
+    "noData": "No domain traffic yet",
+    "noDataHint": "Traffic data will appear here after collection starts."
   },
   "topProxies": {
     "title": "Top Proxies",
     "sortByTraffic": "Sort by traffic",
     "sortByConnections": "Sort by connections",
-    "viewAll": "View all"
+    "viewAll": "View all",
+    "noData": "No proxy traffic yet",
+    "noDataHint": "Traffic data will appear here after collection starts."
   },
   "topCountries": {
     "title": "Top Regions",
     "viewAll": "View all",
     "sortByTraffic": "Sort by traffic",
-    "sortByConnections": "Sort by connections"
+    "sortByConnections": "Sort by connections",
+    "noData": "No regional traffic yet",
+    "noDataHint": "Traffic data will appear here after collection starts."
   },
   "domains": {
     "title": "Top Domains",
@@ -98,6 +146,8 @@
     "associatedIPs": "Associated IP Addresses",
     "search": "Search domains...",
     "noResults": "No domains found",
+    "noData": "No domain data available",
+    "noDataHint": "Traffic data will appear here after collection starts.",
     "connections": "connections",
     "lastSeen": "Last seen",
     "topDomainsByTraffic": "Top Domains by Traffic",
@@ -124,6 +174,8 @@
     "topIPsByTraffic": "Top IP Addresses by Traffic",
     "search": "Search IPs...",
     "noResults": "No IPs found",
+    "noData": "No IP data available",
+    "noDataHint": "Traffic data will appear here after collection starts.",
     "ip": "IP Address",
     "ipAddress": "IP Address",
     "ipList": "IP Addresses",
@@ -164,7 +216,18 @@
     "sortByTraffic": "Traffic",
     "sortByConnections": "Connections",
     "noData": "No data",
+    "noDataHint": "Proxy traffic details will appear after collection starts.",
     "viewAll": "Back to all proxies"
+  },
+  "devices": {
+    "title": "Devices",
+    "distribution": "Device Traffic Distribution",
+    "noData": "No device data available",
+    "noDataHint": "Device traffic details will appear after collection starts.",
+    "connections": "connections",
+    "total": "Total",
+    "download": "Download",
+    "upload": "Upload"
   },
   "rules": {
     "title": "Rules",
@@ -174,6 +237,7 @@
     "description": "Traffic distribution by matching rules and their final proxy nodes",
     "connections": "conn",
     "noData": "No data",
+    "noDataHint": "Rule traffic details will appear after collection starts.",
     "total": "Total",
     "download": "Download",
     "upload": "Upload",

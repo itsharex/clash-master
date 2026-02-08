@@ -23,10 +23,37 @@ export function formatNumber(num: number): string {
   return num.toString();
 }
 
+function parseApiTimestamp(dateString: string): Date {
+  const raw = (dateString || "").trim();
+  if (!raw) return new Date(Number.NaN);
+
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(raw);
+  if (hasTimezone) {
+    return new Date(raw);
+  }
+
+  // Range-query rows may return minute keys like "2026-02-08T13:21:00"
+  // without timezone info. Treat them as UTC to avoid local-time offsets.
+  const isoNoTimezone = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(raw);
+  if (isoNoTimezone) {
+    return new Date(`${raw}Z`);
+  }
+
+  // SQLite CURRENT_TIMESTAMP style: "YYYY-MM-DD HH:MM:SS"
+  const sqliteUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw);
+  if (sqliteUtc) {
+    return new Date(raw.replace(" ", "T") + "Z");
+  }
+
+  return new Date(raw);
+}
+
 export function formatDuration(dateString: string): string {
-  const date = new Date(dateString);
+  const date = parseApiTimestamp(dateString);
+  if (Number.isNaN(date.getTime())) return "-";
+
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
+  const diff = Math.max(0, now.getTime() - date.getTime());
 
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);

@@ -34,13 +34,91 @@ export class APIServer {
       return activeBackend?.id ?? null;
     };
 
+    const getTimeRange = (
+      request: any,
+      reply: any,
+    ): { start?: string; end?: string; active: boolean } | null => {
+      const { start, end } = request.query as { start?: string; end?: string };
+      if (!start && !end) {
+        return { active: false };
+      }
+      if (!start || !end) {
+        reply.status(400).send({ error: 'Both start and end must be provided together' });
+        return null;
+      }
+
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        reply.status(400).send({ error: 'Invalid time range format, expected ISO datetime' });
+        return null;
+      }
+      if (startDate > endDate) {
+        reply.status(400).send({ error: 'start must be less than or equal to end' });
+        return null;
+      }
+
+      return {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        active: true,
+      };
+    };
+
+    const parseLimit = (
+      raw: string | undefined,
+      fallback: number,
+      max: number,
+    ): number => {
+      if (raw === undefined || raw === null || raw === '') {
+        return fallback;
+      }
+      const parsed = parseInt(raw, 10);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        return fallback;
+      }
+      return Math.min(parsed, max);
+    };
+
+    const shouldIncludeRealtime = (
+      timeRange: { start?: string; end?: string; active: boolean },
+    ): boolean => {
+      if (!timeRange.active) {
+        return true;
+      }
+      if (!timeRange.end) {
+        return false;
+      }
+
+      const endMs = new Date(timeRange.end).getTime();
+      if (Number.isNaN(endMs)) {
+        return false;
+      }
+
+      // For "latest window" queries (end close to now), keep merging in-memory deltas
+      // so dashboard updates stay near real-time between DB flushes.
+      const toleranceMs = parseInt(
+        process.env.REALTIME_RANGE_END_TOLERANCE_MS || '120000',
+        10,
+      );
+      const windowMs = Number.isFinite(toleranceMs)
+        ? Math.max(10_000, toleranceMs)
+        : 120_000;
+      return endMs >= Date.now() - windowMs;
+    };
+
     // Health check
     app.get('/health', async () => ({ status: 'ok' }));
 
     // Get summary statistics for a specific backend
     app.get('/api/stats/summary', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
@@ -50,26 +128,64 @@ export class APIServer {
         return reply.status(404).send({ error: 'Backend not found' });
       }
 
-      const summary = this.db.getSummary(backendId);
-      const summaryWithRealtime = realtimeStore.applySummaryDelta(backendId, summary);
-      const topDomains = realtimeStore.mergeTopDomains(
+      const includeRealtime = shouldIncludeRealtime(timeRange);
+      const summary = this.db.getSummary(
         backendId,
-        this.db.getTopDomains(backendId, 10),
-        10
+        timeRange.start,
+        timeRange.end,
       );
-      const topIPs = realtimeStore.mergeTopIPs(
+      const summaryWithRealtime = includeRealtime
+        ? realtimeStore.applySummaryDelta(backendId, summary)
+        : summary;
+
+      const dbTopDomains = this.db.getTopDomains(
         backendId,
-        this.db.getTopIPs(backendId, 10),
-        10
+        10,
+        timeRange.start,
+        timeRange.end,
       );
-      const proxyStats = realtimeStore.mergeProxyStats(
+      const topDomains = includeRealtime
+        ? realtimeStore.mergeTopDomains(backendId, dbTopDomains, 10)
+        : dbTopDomains;
+
+      const dbTopIPs = this.db.getTopIPs(
         backendId,
-        this.db.getProxyStats(backendId)
+        10,
+        timeRange.start,
+        timeRange.end,
       );
-      const ruleStats = this.db.getRuleStats(backendId);
-      const hourlyStats = this.db.getHourlyStats(backendId, 24);
-      const todayTraffic = this.db.getTodayTraffic(backendId);
-      const todayDelta = realtimeStore.getTodayDelta(backendId);
+      const topIPs = includeRealtime
+        ? realtimeStore.mergeTopIPs(backendId, dbTopIPs, 10)
+        : dbTopIPs;
+
+      const dbProxyStats = this.db.getProxyStats(
+        backendId,
+        timeRange.start,
+        timeRange.end,
+      );
+      const proxyStats = includeRealtime
+        ? realtimeStore.mergeProxyStats(backendId, dbProxyStats)
+        : dbProxyStats;
+
+      const ruleStats = this.db.getRuleStats(
+        backendId,
+        timeRange.start,
+        timeRange.end,
+      );
+      const hourlyStats = this.db.getHourlyStats(
+        backendId,
+        24,
+        timeRange.start,
+        timeRange.end,
+      );
+      const todayTraffic = this.db.getTrafficInRange(
+        backendId,
+        timeRange.start,
+        timeRange.end,
+      );
+      const todayDelta = includeRealtime
+        ? realtimeStore.getTodayDelta(backendId)
+        : { upload: 0, download: 0 };
 
       return {
         backend: {
@@ -103,6 +219,11 @@ export class APIServer {
     // Get domain statistics for a specific backend (paginated)
     app.get('/api/stats/domains', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
 
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -121,12 +242,19 @@ export class APIServer {
         sortBy,
         sortOrder,
         search,
+        start: timeRange.start,
+        end: timeRange.end,
       });
     });
 
     // Get IP statistics for a specific backend (paginated)
     app.get('/api/stats/ips', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
 
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -145,12 +273,19 @@ export class APIServer {
         sortBy,
         sortOrder,
         search,
+        start: timeRange.start,
+        end: timeRange.end,
       });
     });
 
     // Get per-proxy traffic breakdown for a specific domain
     app.get('/api/stats/domains/proxy-stats', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -161,12 +296,17 @@ export class APIServer {
         return reply.status(400).send({ error: 'Domain parameter is required' });
       }
 
-      return this.db.getDomainProxyStats(backendId, domain);
+      return this.db.getDomainProxyStats(backendId, domain, timeRange.start, timeRange.end);
     });
 
     // Get IP details for a specific domain (includes geoIP and traffic)
     app.get('/api/stats/domains/ip-details', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -177,19 +317,22 @@ export class APIServer {
         return reply.status(400).send({ error: 'Domain parameter is required' });
       }
 
-      // Get the domain's IPs directly from database
-      const domainData = this.db.getDomainByName(backendId, domain);
-      if (!domainData || !domainData.ips || domainData.ips.length === 0) {
-        return [];
-      }
-
-      // Get IP details
-      return this.db.getIPStatsByIPs(backendId, domainData.ips);
+      return this.db.getDomainIPDetails(
+        backendId,
+        domain,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get per-proxy traffic breakdown for a specific IP
     app.get('/api/stats/ips/proxy-stats', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -200,101 +343,165 @@ export class APIServer {
         return reply.status(400).send({ error: 'IP parameter is required' });
       }
 
-      return this.db.getIPProxyStats(backendId, ip);
+      return this.db.getIPProxyStats(backendId, ip, timeRange.start, timeRange.end);
     });
 
     // Get domains for a specific proxy/chain
     app.get('/api/stats/proxies/domains', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      const { chain } = request.query as { chain?: string };
+      const { chain, limit } = request.query as { chain?: string; limit?: string };
       if (!chain) {
         return reply.status(400).send({ error: 'Chain parameter is required' });
       }
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getProxyDomains(backendId, chain);
+      return this.db.getProxyDomains(
+        backendId,
+        chain,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get IPs for a specific proxy/chain
     app.get('/api/stats/proxies/ips', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      const { chain } = request.query as { chain?: string };
+      const { chain, limit } = request.query as { chain?: string; limit?: string };
       if (!chain) {
         return reply.status(400).send({ error: 'Chain parameter is required' });
       }
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getProxyIPs(backendId, chain);
+      return this.db.getProxyIPs(
+        backendId,
+        chain,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get proxy/chain statistics for a specific backend
     app.get('/api/stats/proxies', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return realtimeStore.mergeProxyStats(
-        backendId,
-        this.db.getProxyStats(backendId)
-      );
+      const stats = this.db.getProxyStats(backendId, timeRange.start, timeRange.end);
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeProxyStats(backendId, stats);
+      }
+      return stats;
     });
 
     // Get rule statistics for a specific backend
     app.get('/api/stats/rules', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return this.db.getRuleStats(backendId);
+      return this.db.getRuleStats(backendId, timeRange.start, timeRange.end);
     });
 
     // Get domains for a specific rule
     app.get('/api/stats/rules/domains', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      const { rule } = request.query as { rule?: string };
+      const { rule, limit } = request.query as { rule?: string; limit?: string };
       if (!rule) {
         return reply.status(400).send({ error: 'Rule parameter is required' });
       }
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getRuleDomains(backendId, rule);
+      return this.db.getRuleDomains(
+        backendId,
+        rule,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get IPs for a specific rule
     app.get('/api/stats/rules/ips', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      const { rule } = request.query as { rule?: string };
+      const { rule, limit } = request.query as { rule?: string; limit?: string };
       if (!rule) {
         return reply.status(400).send({ error: 'Rule parameter is required' });
       }
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getRuleIPs(backendId, rule);
+      return this.db.getRuleIPs(
+        backendId,
+        rule,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get rule chain flow for a specific rule
     app.get('/api/stats/rules/chain-flow', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
       
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
@@ -305,18 +512,23 @@ export class APIServer {
         return reply.status(400).send({ error: 'Rule parameter is required' });
       }
 
-      return this.db.getRuleChainFlow(backendId, rule);
+      return this.db.getRuleChainFlow(backendId, rule, timeRange.start, timeRange.end);
     });
 
     // Get all rule chain flows merged into unified DAG
     app.get('/api/stats/rules/chain-flow-all', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+
+      if (timeRange === null) {
+        return;
+      }
 
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return this.db.getAllRuleChainFlows(backendId);
+      return this.db.getAllRuleChainFlows(backendId, timeRange.start, timeRange.end);
     });
 
     // Get rule to proxy mapping for a specific backend
@@ -333,47 +545,143 @@ export class APIServer {
     // Get country traffic statistics for a specific backend
     app.get('/api/stats/countries', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return realtimeStore.mergeCountryStats(
+      const { limit } = request.query as { limit?: string };
+      const stats = this.db.getCountryStats(
         backendId,
-        this.db.getCountryStats(backendId)
+        parseInt(limit || '50', 10),
+        timeRange.start,
+        timeRange.end,
+      );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeCountryStats(backendId, stats);
+      }
+      return stats;
+    });
+
+    // Get device statistics for a specific backend
+    app.get('/api/stats/devices', async (request, reply) => {
+      const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+      if (backendId === null) {
+        return reply.status(404).send({ error: 'No backend specified or active' });
+      }
+      if (timeRange === null) {
+        return;
+      }
+      const { limit } = request.query as { limit?: string };
+      return this.db.getDevices(backendId, parseInt(limit || '50'), timeRange.start, timeRange.end);
+    });
+
+    app.get('/api/stats/devices/domains', async (request, reply) => {
+      const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+      if (timeRange === null) {
+        return;
+      }
+      if (backendId === null) {
+        return reply.status(404).send({ error: 'No backend specified or active' });
+      }
+      const { sourceIP, limit } = request.query as { sourceIP: string; limit?: string };
+      if (!sourceIP) return [];
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
+      return this.db.getDeviceDomains(
+        backendId,
+        sourceIP,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
+    });
+
+    app.get('/api/stats/devices/ips', async (request, reply) => {
+      const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
+      if (timeRange === null) {
+        return;
+      }
+      if (backendId === null) {
+        return reply.status(404).send({ error: 'No backend specified or active' });
+      }
+      const { sourceIP, limit } = request.query as { sourceIP: string; limit?: string };
+      if (!sourceIP) return [];
+      const effectiveLimit = parseLimit(limit, 5000, 20000);
+      return this.db.getDeviceIPs(
+        backendId,
+        sourceIP,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
       );
     });
 
     // Get hourly statistics for a specific backend
     app.get('/api/stats/hourly', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
       const { hours = 24 } = request.query as { hours?: string };
-      return this.db.getHourlyStats(backendId, parseInt(hours as string) || 24);
+      return this.db.getHourlyStats(
+        backendId,
+        parseInt(hours as string) || 24,
+        timeRange.start,
+        timeRange.end,
+      );
     });
 
     // Get traffic trend for a specific backend (for time range selection)
     app.get('/api/stats/trend', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
       const { minutes = 30 } = request.query as { minutes?: string };
       const windowMinutes = parseInt(minutes as string) || 30;
-      const base = this.db.getTrafficTrend(backendId, windowMinutes);
+      const base = this.db.getTrafficTrend(
+        backendId,
+        windowMinutes,
+        timeRange.start,
+        timeRange.end,
+      );
+      if (!shouldIncludeRealtime(timeRange)) {
+        return base;
+      }
       return realtimeStore.mergeTrend(backendId, base, windowMinutes, 1);
     });
 
     // Get traffic trend aggregated by time buckets for chart display
     app.get('/api/stats/trend/aggregated', async (request, reply) => {
       const backendId = getBackendId(request);
+      const timeRange = getTimeRange(request, reply);
       
+      if (timeRange === null) {
+        return;
+      }
+
       if (backendId === null) {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
@@ -381,7 +689,16 @@ export class APIServer {
       const { minutes = 30, bucketMinutes = 1 } = request.query as { minutes?: string; bucketMinutes?: string };
       const windowMinutes = parseInt(minutes as string) || 30;
       const bucket = parseInt(bucketMinutes as string) || 1;
-      const base = this.db.getTrafficTrendAggregated(backendId, windowMinutes, bucket);
+      const base = this.db.getTrafficTrendAggregated(
+        backendId,
+        windowMinutes,
+        bucket,
+        timeRange.start,
+        timeRange.end,
+      );
+      if (!shouldIncludeRealtime(timeRange)) {
+        return base;
+      }
       return realtimeStore.mergeTrend(backendId, base, windowMinutes, bucket);
     });
 

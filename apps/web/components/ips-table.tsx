@@ -20,10 +20,11 @@ import {
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/country-flag";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { IPStats, ProxyTrafficStats } from "@clashmaster/shared";
-import { api } from "@/lib/api";
+import { api, type TimeRange } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,7 @@ import {
 
 interface IPsTableProps {
   activeBackendId?: number;
+  timeRange?: TimeRange;
 }
 
 type SortKey =
@@ -82,36 +84,7 @@ const getDomainColor = (domain: string) => {
   return IP_COLORS[Math.abs(hash) % IP_COLORS.length];
 };
 
-// Country flag emoji mapping
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "🇺🇸",
-  CN: "🇨🇳",
-  JP: "🇯🇵",
-  SG: "🇸🇬",
-  HK: "🇭🇰",
-  TW: "🇹🇼",
-  KR: "🇰🇷",
-  GB: "🇬🇧",
-  DE: "🇩🇪",
-  FR: "🇫🇷",
-  NL: "🇳🇱",
-  CA: "🇨🇦",
-  AU: "🇦🇺",
-  IN: "🇮🇳",
-  BR: "🇧🇷",
-  RU: "🇷🇺",
-  SE: "🇸🇪",
-  CH: "🇨🇭",
-  IL: "🇮🇱",
-  ID: "🇮🇩",
-  LOCAL: "🏠",
-};
-
-function getCountryFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS[country.toUpperCase()] || "🌐";
-}
-
-export function IPsTable({ activeBackendId }: IPsTableProps) {
+export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
   const t = useTranslations("ips");
   const [data, setData] = useState<IPStats[]>([]);
   const [total, setTotal] = useState(0);
@@ -154,6 +127,8 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
           sortBy: sortKey,
           sortOrder,
           search: debouncedSearch || undefined,
+          start: timeRange?.start,
+          end: timeRange?.end,
         });
         if (!cancelled) {
           setData(result.data);
@@ -180,7 +155,13 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
     sortKey,
     sortOrder,
     debouncedSearch,
+    timeRange,
   ]);
+
+  useEffect(() => {
+    setExpandedIP(null);
+    setProxyStats({});
+  }, [activeBackendId, timeRange]);
 
   // Fetch proxy stats when an IP is expanded
   const fetchProxyStats = useCallback(
@@ -188,7 +169,7 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
       if (proxyStats[ip]) return;
       setProxyStatsLoading(ip);
       try {
-        const stats = await api.getIPProxyStats(ip);
+        const stats = await api.getIPProxyStats(ip, activeBackendId, timeRange);
         setProxyStats((prev) => ({ ...prev, [ip]: stats }));
       } catch (err) {
         console.error(`Failed to fetch proxy stats for ${ip}:`, err);
@@ -197,7 +178,7 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
         setProxyStatsLoading(null);
       }
     },
-    [proxyStats],
+    [proxyStats, activeBackendId, timeRange],
   );
 
   const handleSort = (key: SortKey) => {
@@ -435,11 +416,7 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
                   <div className="col-span-1 flex items-center">
                     {ip.geoIP && ip.geoIP.length > 0 ? (
                       <div className="flex items-center gap-1.5">
-                        <span
-                          className="text-sm"
-                          title={ip.geoIP[1] || ip.geoIP[0]}>
-                          {getCountryFlag(ip.geoIP[0])}
-                        </span>
+                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" title={ip.geoIP[1] || ip.geoIP[0]} />
                         <span className="text-xs truncate">
                           {ip.geoIP[1] || ip.geoIP[0]}
                         </span>
@@ -541,7 +518,7 @@ export function IPsTable({ activeBackendId }: IPsTableProps) {
                   <div className="flex items-center gap-2 mb-2 pl-[30px] flex-wrap">
                     {ip.geoIP && ip.geoIP.length > 0 && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <span>{getCountryFlag(ip.geoIP[0])}</span>
+                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" />
                         <span className="truncate">
                           {ip.geoIP[1] || ip.geoIP[0]}
                         </span>

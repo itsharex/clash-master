@@ -6,10 +6,11 @@ import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Favicon } from "@/components/favicon";
+import { CountryFlag } from "@/components/country-flag";
 import { formatBytes, formatNumber, formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { DomainStats, ProxyTrafficStats, IPStats } from "@clashmaster/shared";
-import { api } from "@/lib/api";
+import { api, type TimeRange } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,7 @@ import {
 
 interface DomainsTableProps {
   activeBackendId?: number;
+  timeRange?: TimeRange;
 }
 
 type SortKey = "domain" | "totalDownload" | "totalUpload" | "totalConnections" | "lastSeen";
@@ -49,20 +51,7 @@ const getIPGradient = (ip: string) => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-// Country flag emoji mapping
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "🇺🇸", CN: "🇨🇳", JP: "🇯🇵", SG: "🇸🇬", HK: "🇭🇰",
-  TW: "🇹🇼", KR: "🇰🇷", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷",
-  NL: "🇳🇱", CA: "🇨🇦", AU: "🇦🇺", IN: "🇮🇳", BR: "🇧🇷",
-  RU: "🇷🇺", SE: "🇸🇪", CH: "🇨🇭", IL: "🇮🇱", ID: "🇮🇩",
-  LOCAL: "🏠",
-};
-
-function getCountryFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS[country.toUpperCase()] || "🌐";
-}
-
-export function DomainsTable({ activeBackendId }: DomainsTableProps) {
+export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) {
   const t = useTranslations("domains");
   const [data, setData] = useState<DomainStats[]>([]);
   const [total, setTotal] = useState(0);
@@ -101,6 +90,8 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
           sortBy: sortKey,
           sortOrder,
           search: debouncedSearch || undefined,
+          start: timeRange?.start,
+          end: timeRange?.end,
         });
         if (!cancelled) {
           setData(result.data);
@@ -118,14 +109,24 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
     };
     fetchData();
     return () => { cancelled = true; };
-  }, [activeBackendId, currentPage, pageSize, sortKey, sortOrder, debouncedSearch]);
+  }, [activeBackendId, currentPage, pageSize, sortKey, sortOrder, debouncedSearch, timeRange]);
+
+  useEffect(() => {
+    setExpandedDomain(null);
+    setProxyStats({});
+    setIPDetails({});
+  }, [activeBackendId, timeRange]);
 
   // Fetch proxy stats when a domain is expanded
   const fetchProxyStats = useCallback(async (domain: string) => {
     if (proxyStats[domain]) return;
     setProxyStatsLoading(domain);
     try {
-      const stats = await api.getDomainProxyStats(domain);
+      const stats = await api.getDomainProxyStats(
+        domain,
+        activeBackendId,
+        timeRange,
+      );
       setProxyStats(prev => ({ ...prev, [domain]: stats }));
     } catch (err) {
       console.error(`Failed to fetch proxy stats for ${domain}:`, err);
@@ -133,14 +134,18 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
     } finally {
       setProxyStatsLoading(null);
     }
-  }, [proxyStats]);
+  }, [proxyStats, activeBackendId, timeRange]);
 
   // Fetch IP details when a domain is expanded
   const fetchIPDetails = useCallback(async (domain: string) => {
     if (ipDetails[domain]) return;
     setIPDetailsLoading(domain);
     try {
-      const details = await api.getDomainIPDetails(domain);
+      const details = await api.getDomainIPDetails(
+        domain,
+        activeBackendId,
+        timeRange,
+      );
       setIPDetails(prev => ({ ...prev, [domain]: details }));
     } catch (err) {
       console.error(`Failed to fetch IP details for ${domain}:`, err);
@@ -148,7 +153,7 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
     } finally {
       setIPDetailsLoading(null);
     }
-  }, [ipDetails]);
+  }, [ipDetails, activeBackendId, timeRange]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -598,9 +603,7 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
                             {(() => {
                               const totalIPTraffic = ipDetails[domain.domain].reduce((sum, ip) => sum + ip.totalDownload + ip.totalUpload, 0);
                               return ipDetails[domain.domain].map((ipStat) => {
-                                const flag = ipStat.geoIP && ipStat.geoIP.length > 0
-                                  ? getCountryFlag(ipStat.geoIP[0])
-                                  : "🌐";
+                                const country = ipStat.geoIP?.[0];
                                 const location = ipStat.geoIP && ipStat.geoIP.length > 1
                                   ? ipStat.geoIP[1]
                                   : ipStat.geoIP?.[0] || null;
@@ -639,8 +642,9 @@ export function DomainsTable({ activeBackendId }: DomainsTableProps) {
                                         <span className="text-muted-foreground">{formatNumber(ipStat.totalConnections)} conn</span>
                                       </div>
                                       {location && (
-                                        <span className="text-[11px] text-muted-foreground">
-                                          {flag} {location}
+                                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                          <CountryFlag country={country} className="h-3 w-4" />
+                                          <span>{location}</span>
                                         </span>
                                       )}
                                     </div>

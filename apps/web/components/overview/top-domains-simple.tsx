@@ -46,6 +46,8 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
     return sorted.slice(0, 6);
   }, [domains, sortBy]);
 
+  const hasData = sortedDomains.length > 0;
+
   // Get favicon URL using current provider
   const getFaviconForDomain = (domain: string) => {
     return getFaviconUrl(domain, settings.faviconProvider);
@@ -95,7 +97,7 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
 
       {/* List */}
       <div className="space-y-2 flex-1">
-        {sortedDomains.map((domain, index) => {
+        {hasData ? sortedDomains.map((domain, index) => {
           const total = domain.totalDownload + domain.totalUpload;
           const badgeColor = index === 0
             ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
@@ -162,12 +164,29 @@ export const TopDomainsSimple = React.memo(function TopDomainsSimple({
               </div>
             </div>
           );
-        })}
+        }) : (
+          <div className="h-full min-h-[220px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5">
+            <div className="space-y-2">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-8 rounded-lg bg-muted/60 animate-pulse" />
+              ))}
+            </div>
+            <div className="mt-4 text-center">
+              <p className="text-sm font-medium text-muted-foreground">{t("noData")}</p>
+              <p className="text-xs text-muted-foreground/80 mt-1">{t("noDataHint")}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
       <div className="pt-2 border-t border-border/30">
-        <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full h-9 text-xs"
+          onClick={onViewAll}
+          disabled={!hasData}>
           {t("viewAll")}
           <ArrowRight className="w-3 h-3 ml-1" />
         </Button>

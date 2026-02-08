@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Server, ChevronLeft, ChevronRight, Loader2, BarChart3, Link2, Rows3, ArrowUpDown, ArrowDown, ArrowUp, Globe, Waypoints, ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { api, type ClashRulesResponse } from "@/lib/api";
+import { api, type ClashRulesResponse, type TimeRange } from "@/lib/api";
+import { CountryFlag } from "@/components/country-flag";
 import { Favicon } from "@/components/favicon";
 import { UnifiedRuleChainFlow } from "@/components/rule-chain-flow";
 import type { RuleStats, DomainStats, IPStats } from "@clashmaster/shared";
@@ -26,6 +27,8 @@ import type { RuleStats, DomainStats, IPStats } from "@clashmaster/shared";
 interface InteractiveRuleStatsProps {
   data: RuleStats[];
   activeBackendId?: number;
+  timeRange?: TimeRange;
+  backendStatus?: "healthy" | "unhealthy" | "unknown";
 }
 
 const COLORS = [
@@ -92,22 +95,6 @@ const getIPColor = (ip: string) => {
   return ICON_COLORS[Math.abs(hash) % ICON_COLORS.length];
 };
 
-// Get country flag emoji from country code
-function getCountryFlag(countryCode: string): string {
-  if (!countryCode || countryCode === 'unknown') return '🌐';
-  const code = countryCode.toUpperCase();
-  if (code === 'ZZ') return '🌐';
-  // Convert country code to regional indicator symbols
-  const base = 127397;
-  try {
-    return String.fromCodePoint(
-      ...code.split('').map(char => base + char.charCodeAt(0))
-    );
-  } catch {
-    return '🌐';
-  }
-}
-
 // Custom label renderer for bar chart
 function renderCustomBarLabel(props: any) {
   const { x, y, width, value, height } = props;
@@ -126,10 +113,16 @@ function renderCustomBarLabel(props: any) {
   );
 }
 
-export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleStatsProps) {
+export function InteractiveRuleStats({
+  data,
+  activeBackendId,
+  timeRange,
+  backendStatus,
+}: InteractiveRuleStatsProps) {
   const t = useTranslations("rules");
   const domainsT = useTranslations("domains");
   const ipsT = useTranslations("ips");
+  const backendT = useTranslations("dashboard");
   
   const [selectedRule, setSelectedRule] = useState<string | null>(null);
   const [ruleDomains, setRuleDomains] = useState<DomainStats[]>([]);
@@ -156,6 +149,9 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
   // Expanded states
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
   const [expandedIP, setExpandedIP] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const prevSelectedRuleRef = useRef<string | null>(null);
+  const prevBackendRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 640px)");
@@ -291,44 +287,81 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
   };
 
   // Load rule details
-  const loadRuleDetails = useCallback(async (rule: string) => {
-    setLoading(true);
+  const loadRuleDetails = useCallback(async (
+    rule: string,
+    options?: { background?: boolean; preserveUiState?: boolean },
+  ) => {
+    const background = options?.background ?? false;
+    const preserveUiState = options?.preserveUiState ?? false;
+    const requestId = ++requestIdRef.current;
+
+    if (!background) {
+      setLoading(true);
+    }
+
     try {
       const [domains, ips] = await Promise.all([
-        api.getRuleDomains(rule, activeBackendId),
-        api.getRuleIPs(rule, activeBackendId),
+        api.getRuleDomains(rule, activeBackendId, timeRange),
+        api.getRuleIPs(rule, activeBackendId, timeRange),
       ]);
+      if (requestId !== requestIdRef.current) return;
       setRuleDomains(domains);
       setRuleIPs(ips);
-      // Reset pagination
-      setDomainPage(1);
-      setIpPage(1);
-      setDomainSearch("");
-      setIpSearch("");
+      if (!preserveUiState) {
+        setDomainPage(1);
+        setIpPage(1);
+        setDomainSearch("");
+        setIpSearch("");
+      }
     } catch (err) {
       console.error(`Failed to load details for ${rule}:`, err);
-      setRuleDomains([]);
-      setRuleIPs([]);
+      if (!background) {
+        setRuleDomains([]);
+        setRuleIPs([]);
+      }
     } finally {
-      setLoading(false);
+      if (!background && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [activeBackendId]);
+  }, [activeBackendId, timeRange]);
 
   // Default select first rule when data loads
   useEffect(() => {
-    if (chartData.length > 0 && !selectedRule) {
-      const firstRule = chartData[0].rawName;
-      setSelectedRule(firstRule);
-      loadRuleDetails(firstRule);
+    if (chartData.length === 0) {
+      setSelectedRule(null);
+      setRuleDomains([]);
+      setRuleIPs([]);
+      return;
     }
-  }, [chartData, selectedRule, loadRuleDetails]);
+    const exists = !!selectedRule && chartData.some((item) => item.rawName === selectedRule);
+    if (!exists) {
+      setSelectedRule(chartData[0].rawName);
+    }
+  }, [chartData, selectedRule]);
+
+  useEffect(() => {
+    if (selectedRule) {
+      const selectedChanged = prevSelectedRuleRef.current !== selectedRule;
+      const backendChanged = prevBackendRef.current !== activeBackendId;
+      const hasExistingDetails = ruleDomains.length > 0 || ruleIPs.length > 0;
+      if (loading && !selectedChanged && !backendChanged) return;
+      const background = !selectedChanged && !backendChanged && hasExistingDetails;
+
+      prevSelectedRuleRef.current = selectedRule;
+      prevBackendRef.current = activeBackendId;
+      loadRuleDetails(selectedRule, {
+        background,
+        preserveUiState: background,
+      });
+    }
+  }, [selectedRule, activeBackendId, timeRange, loadRuleDetails, ruleDomains.length, ruleIPs.length, loading]);
 
   const handleRuleClick = useCallback((rule: string) => {
     if (selectedRule !== rule) {
       setSelectedRule(rule);
-      loadRuleDetails(rule);
     }
-  }, [selectedRule, loadRuleDetails]);
+  }, [selectedRule]);
 
   const selectedRuleData = useMemo(() => {
     return chartData.find(r => r.rawName === selectedRule);
@@ -405,6 +438,11 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
       }));
   }, [ruleDomains]);
 
+  const isBackendUnavailable = backendStatus === "unhealthy";
+  const emptyHint = isBackendUnavailable
+    ? backendT("backendUnavailableHint")
+    : t("noDataHint");
+
   const getPageNumbers = (currentPage: number, totalPages: number) => {
     const pages: (number | string)[] = [];
     const maxVisible = 5;
@@ -434,8 +472,12 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
   if (chartData.length === 0) {
     return (
       <Card>
-        <CardContent className="p-12 text-center text-muted-foreground">
-          {t("noData")}
+        <CardContent className="p-5 sm:p-6">
+          <div className="min-h-[220px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-6 flex flex-col items-center justify-center text-center">
+            <Waypoints className="h-8 w-8 text-muted-foreground/70 mb-2" />
+            <p className="text-sm font-medium text-muted-foreground">{t("noData")}</p>
+            <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">{emptyHint}</p>
+          </div>
         </CardContent>
       </Card>
     );
@@ -463,7 +505,8 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                     innerRadius={50}
                     outerRadius={80}
                     paddingAngle={2}
-                    dataKey="value">
+                    dataKey="value"
+                    isAnimationActive={false}>
                     {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
@@ -645,8 +688,10 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                 <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
               </div>
             ) : domainChartData.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground h-[280px] flex items-center justify-center">
-                {domainsT("noResults")}
+              <div className="h-[280px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                <BarChart3 className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                <p className="text-sm font-medium text-muted-foreground">{domainsT("noData")}</p>
+                <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">{emptyHint}</p>
               </div>
             ) : (
               <div className="h-[280px] w-full min-w-0 overflow-hidden sm:overflow-visible">
@@ -718,6 +763,7 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                       dataKey="total"
                       radius={[0, 4, 4, 0]}
                       maxBarSize={24}
+                      isAnimationActive={false}
                     >
                       {domainChartData.map((entry, index) => (
                         <BarCell key={`cell-${index}`} fill={entry.color} />
@@ -742,6 +788,7 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
       <UnifiedRuleChainFlow
         selectedRule={selectedRule}
         activeBackendId={activeBackendId}
+        timeRange={timeRange}
       />
 
       {/* Bottom Section: Domain List & IP Addresses with pagination */}
@@ -788,8 +835,18 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
                 ) : filteredDomains.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    {domainSearch ? domainsT("noResults") : "No domains found"}
+                  <div className="px-4 py-6">
+                    <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                      <Globe className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {domainSearch ? domainsT("noResults") : domainsT("noData")}
+                      </p>
+                      {!domainSearch && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">
+                          {isBackendUnavailable ? backendT("backendUnavailableHint") : domainsT("noDataHint")}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -1119,8 +1176,18 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
                 ) : filteredIPs.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    {ipSearch ? ipsT("noResults") : "No IPs found"}
+                  <div className="px-4 py-6">
+                    <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                      <Server className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {ipSearch ? ipsT("noResults") : ipsT("noData")}
+                      </p>
+                      {!ipSearch && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">
+                          {isBackendUnavailable ? backendT("backendUnavailableHint") : ipsT("noDataHint")}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -1221,11 +1288,9 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
 
                                 {/* Location */}
                                 <div className="col-span-2 flex items-center gap-1.5 min-w-0">
-                                  {ip.geoIP && ip.geoIP.length > 0 ? (
-                                    <>
-                                      <span className="text-sm shrink-0" title={ip.geoIP[1] || ip.geoIP[0]}>
-                                        {getCountryFlag(ip.geoIP[0])}
-                                      </span>
+                                    {ip.geoIP && ip.geoIP.length > 0 ? (
+                                      <>
+                                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" title={ip.geoIP[1] || ip.geoIP[0]} />
                                       <span className="text-xs truncate">{ip.geoIP[1] || ip.geoIP[0]}</span>
                                     </>
                                   ) : (
@@ -1294,7 +1359,7 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                                     <code className="text-sm font-medium truncate block">{ip.ip}</code>
                                     {ip.geoIP && ip.geoIP.length > 0 && (
                                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        <span className="text-sm">{getCountryFlag(ip.geoIP[0])}</span>
+                                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" />
                                         <span className="truncate">{ip.geoIP[1] || ip.geoIP[0]}</span>
                                       </div>
                                     )}

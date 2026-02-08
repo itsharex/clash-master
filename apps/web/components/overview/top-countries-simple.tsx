@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import { Globe, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/country-flag";
 import { formatBytes, formatNumber, cn } from "@/lib/utils";
 import type { CountryStats } from "@clashmaster/shared";
 
@@ -13,28 +14,6 @@ interface TopCountriesSimpleProps {
   onSortChange: (mode: "traffic" | "connections") => void;
   onViewAll?: () => void;
 }
-
-// Country code to flag emoji mapping
-const countryFlags: Record<string, string> = {
-  "CN": "🇨🇳", "US": "🇺🇸", "JP": "🇯🇵", "HK": "🇭🇰", "TW": "🇹🇼",
-  "SG": "🇸🇬", "KR": "🇰🇷", "DE": "🇩🇪", "GB": "🇬🇧", "FR": "🇫🇷",
-  "NL": "🇳🇱", "CA": "🇨🇦", "AU": "🇦🇺", "IN": "🇮🇳", "RU": "🇷🇺",
-  "BR": "🇧🇷", "TR": "🇹🇷", "VN": "🇻🇳", "TH": "🇹🇭", "ID": "🇮🇩",
-  "MY": "🇲🇾", "PH": "🇵🇭", "SE": "🇸🇪", "CH": "🇨🇭", "IT": "🇮🇹",
-  "ES": "🇪🇸", "PT": "🇵🇹", "PL": "🇵🇱", "UA": "🇺🇦", "MX": "🇲🇽",
-  "AR": "🇦🇷", "CL": "🇨🇱", "CO": "🇨🇴", "ZA": "🇿🇦", "EG": "🇪🇬",
-  "AE": "🇦🇪", "SA": "🇸🇦", "IL": "🇮🇱", "FI": "🇫🇮", "NO": "🇳🇴",
-  "DK": "🇩🇰", "AT": "🇦🇹", "BE": "🇧🇪", "CZ": "🇨🇿", "HU": "🇭🇺",
-  "RO": "🇷🇴", "BG": "🇧🇬", "HR": "🇭🇷", "RS": "🇷🇸", "SK": "🇸🇰",
-  "SI": "🇸🇮", "LT": "🇱🇹", "LV": "🇱🇻", "EE": "🇪🇪", "IE": "🇮🇪",
-  "NZ": "🇳🇿", "BD": "🇧🇩", "PK": "🇵🇰", "LK": "🇱🇰", "NP": "🇳🇵",
-  "MM": "🇲🇲", "KH": "🇰🇭", "LA": "🇱🇦", "MN": "🇲🇳", "KZ": "🇰🇿",
-  "UZ": "🇺🇿", "AZ": "🇦🇿", "GE": "🇬🇪", "AM": "🇦🇲", "MD": "🇲🇩",
-  "BY": "🇧🇾", "KG": "🇰🇬", "TJ": "🇹🇯", "TM": "🇹🇲", "AF": "🇦🇫",
-  "IQ": "🇮🇶", "IR": "🇮🇷", "JO": "🇯🇴", "LB": "🇱🇧", "SY": "🇸🇾",
-  "YE": "🇾🇪", "OM": "🇴🇲", "QA": "🇶🇦", "BH": "🇧🇭", "KW": "🇰🇼",
-  "LOCAL": "🏠", "UNKNOWN": "🌐", "PRIVATE": "🔒",
-};
 
 const countryNamesEn: Record<string, string> = {
   "CN": "China", "US": "United States", "JP": "Japan", "HK": "Hong Kong", "TW": "Taiwan",
@@ -57,10 +36,6 @@ const countryNamesZh: Record<string, string> = {
   "AR": "阿根廷", "CL": "智利", "ZA": "南非", "AE": "阿联酋", "SA": "沙特阿拉伯",
   "LOCAL": "本地", "UNKNOWN": "未知", "PRIVATE": "私有",
 };
-
-function getCountryFlag(countryCode: string): string {
-  return countryFlags[countryCode.toUpperCase()] || "🌐";
-}
 
 function getCountryName(code: string, locale: string): string {
   const names = locale === "zh" ? countryNamesZh : countryNamesEn;
@@ -87,6 +62,8 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
       })
       .slice(0, 6);
   }, [countries, sortBy]);
+
+  const hasData = sortedCountries.length > 0;
 
   const maxTotal = useMemo(() => {
     if (!sortedCountries.length) return 1;
@@ -142,7 +119,7 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
 
       {/* List */}
       <div className="space-y-2 flex-1">
-        {sortedCountries.map((country, index) => {
+        {hasData ? sortedCountries.map((country, index) => {
           const total = country.totalDownload + country.totalUpload;
           const barPercent = (total / maxTotal) * 100;
           const sharePercent = (total / totalTraffic) * 100;
@@ -167,7 +144,7 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
                 )}>
                   {index + 1}
                 </span>
-                <span className="text-sm leading-none shrink-0">{getCountryFlag(country.country)}</span>
+                <CountryFlag country={country.country} className="h-3.5 w-5" />
                 <span className="flex-1 text-sm font-medium truncate" title={getCountryName(country.country, locale)}>
                   {getCountryName(country.country, locale)}
                 </span>
@@ -204,12 +181,29 @@ export const TopCountriesSimple = React.memo(function TopCountriesSimple({
               </div>
             </div>
           );
-        })}
+        }) : (
+          <div className="h-full min-h-[220px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5">
+            <div className="space-y-2">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="h-8 rounded-lg bg-muted/60 animate-pulse" />
+              ))}
+            </div>
+            <div className="mt-4 text-center">
+              <p className="text-sm font-medium text-muted-foreground">{t("noData")}</p>
+              <p className="text-xs text-muted-foreground/80 mt-1">{t("noDataHint")}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
       <div className="pt-2 border-t border-border/30">
-        <Button variant="ghost" size="sm" className="w-full h-9 text-xs" onClick={onViewAll}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full h-9 text-xs"
+          onClick={onViewAll}
+          disabled={!hasData}>
           {t("viewAll")}
           <ArrowRight className="w-3 h-3 ml-1" />
         </Button>
