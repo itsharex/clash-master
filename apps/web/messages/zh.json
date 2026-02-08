@@ -178,7 +178,9 @@
     "upload": "上传",
     "chainFlow": "规则链路流向",
     "loadingChainFlow": "加载链路流向...",
-    "showAll": "显示全部"
+    "showAll": "全景展示",
+    "activePolicy": "全部策略",
+    "noTrafficRecord": "暂无流量记录"
   },
   "network": {
     "title": "网络",

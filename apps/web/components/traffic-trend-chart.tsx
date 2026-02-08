@@ -165,8 +165,33 @@ export const TrafficTrendChart = React.memo(function TrafficTrendChart({
           </div>
         </div>
 
-        {/* Stats summary */}
-        <div className="flex items-center gap-6 mt-3 text-xs">
+        {/* Stats summary - Mobile: card layout, Desktop: inline layout */}
+        {/* Mobile layout */}
+        <div className="grid grid-cols-3 gap-2 mt-2 lg:hidden">
+          <div className="flex flex-col items-center py-1.5 px-1 rounded-md bg-secondary/50 border border-border/50">
+            <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+              <Clock className="w-2.5 h-2.5" />
+              {t("totalDownload")}
+            </span>
+            <span className="text-xs font-semibold tabular-nums">{formatBytes(stats.totalDownload)}</span>
+          </div>
+          <div className="flex flex-col items-center py-1.5 px-1 rounded-md bg-secondary/50 border border-border/50">
+            <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+              <BarChart3 className="w-2.5 h-2.5" />
+              {t("totalUpload")}
+            </span>
+            <span className="text-xs font-semibold tabular-nums">{formatBytes(stats.totalUpload)}</span>
+          </div>
+          <div className="flex flex-col items-center py-1.5 px-1 rounded-md bg-secondary/50 border border-border/50">
+            <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+              <Activity className="w-2.5 h-2.5" />
+              {t("total")}
+            </span>
+            <span className="text-xs font-bold tabular-nums">{formatBytes(stats.totalDownload + stats.totalUpload)}</span>
+          </div>
+        </div>
+        {/* Desktop layout */}
+        <div className="hidden lg:flex items-center gap-6 mt-3 text-xs">
           <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-muted-foreground">{t("totalDownload")}:</span>

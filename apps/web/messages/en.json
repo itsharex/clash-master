@@ -179,7 +179,9 @@
     "upload": "Upload",
     "chainFlow": "Rule Chain Flow",
     "loadingChainFlow": "Loading chain flow...",
-    "showAll": "Show All"
+    "showAll": "Panorama",
+    "activePolicy": "All Policies",
+    "noTrafficRecord": "No traffic record"
   },
   "network": {
     "title": "Network",

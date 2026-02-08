@@ -70,7 +70,7 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="rounded-xl p-4 border bg-card flex flex-col">
+    <div className="rounded-xl p-4 border bg-card shadow-xs flex flex-col">
       <div
         className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
         style={{ backgroundColor: `${color}15` }}
@@ -112,7 +112,7 @@ function AnimatedStatCard({
   color: string;
 }) {
   return (
-    <div className="rounded-xl p-4 border bg-card flex flex-col">
+    <div className="rounded-xl p-4 border bg-card shadow-xs flex flex-col">
       <div
         className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
         style={{ backgroundColor: `${color}15` }}
@@ -177,7 +177,7 @@ function CircularProgressCard({
   }, [targetOffset, motionOffset]);
 
   return (
-    <div className="rounded-xl p-4 border bg-card flex flex-col">
+    <div className="rounded-xl p-4 border bg-card shadow-xs flex flex-col">
       <div className="mb-3">
         <div className="relative" style={{ width: size, height: size }}>
           <svg width={size} height={size} className="transform -rotate-90">
@@ -238,7 +238,7 @@ function TodayCard({
   uploadLabel: string;
 }) {
   return (
-    <div className="rounded-xl p-4 border bg-card flex flex-col">
+    <div className="rounded-xl p-4 border bg-card shadow-xs flex flex-col">
       <div
         className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
         style={{ backgroundColor: "#10B98115" }}

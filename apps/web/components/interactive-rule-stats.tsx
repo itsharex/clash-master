@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { api, type ClashRulesResponse } from "@/lib/api";
 import { Favicon } from "@/components/favicon";
 import { UnifiedRuleChainFlow } from "@/components/rule-chain-flow";
 import type { RuleStats, DomainStats, IPStats } from "@clashmaster/shared";
@@ -145,6 +145,7 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
   const [ipPageSize, setIpPageSize] = useState<PageSize>(10);
   const [ipSearch, setIpSearch] = useState("");
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
+  const [clashRules, setClashRules] = useState<ClashRulesResponse | null>(null);
 
   // Sort states
   const [domainSortKey, setDomainSortKey] = useState<DomainSortKey>("totalDownload");
@@ -164,9 +165,26 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
     return () => media.removeEventListener("change", update);
   }, []);
 
+  // Fetch Clash rules to find zero-traffic rules
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchClashRules() {
+      try {
+        const result = await api.getClashRules(activeBackendId);
+        if (!cancelled) setClashRules(result);
+      } catch {
+        // Silent - Clash API may not be available
+      }
+    }
+    fetchClashRules();
+    const interval = setInterval(fetchClashRules, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activeBackendId]);
+
   const chartData = useMemo(() => {
     if (!data) return [];
-    return data.map((rule, index) => ({
+    const existingRuleNames = new Set(data.map(r => r.rule));
+    const trafficItems = data.map((rule, index) => ({
       name: rule.rule,
       rawName: rule.rule,
       value: rule.totalDownload + rule.totalUpload,
@@ -176,8 +194,37 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
       finalProxy: rule.finalProxy,
       color: COLORS[index % COLORS.length],
       rank: index,
+      hasTraffic: true,
     }));
-  }, [data]);
+
+    // Append zero-traffic rules from Clash API, using the target proxy group name
+    // (rule.proxy) which matches how traffic data stores rule names.
+    // Multiple low-level rules (RuleSet, ProcessName, etc.) can target the same
+    // proxy group, so we deduplicate by proxy group name.
+    if (clashRules?.rules) {
+      const zeroTrafficItems: typeof trafficItems = [];
+      for (const rule of clashRules.rules) {
+        const proxyGroup = rule.proxy;
+        if (existingRuleNames.has(proxyGroup)) continue;
+        existingRuleNames.add(proxyGroup);
+        zeroTrafficItems.push({
+          name: proxyGroup,
+          rawName: proxyGroup,
+          value: 0,
+          download: 0,
+          upload: 0,
+          connections: 0,
+          finalProxy: proxyGroup,
+          color: "#9CA3AF",
+          rank: trafficItems.length + zeroTrafficItems.length,
+          hasTraffic: false,
+        });
+      }
+      return [...trafficItems, ...zeroTrafficItems];
+    }
+
+    return trafficItems;
+  }, [data, clashRules]);
 
   const totalTraffic = useMemo(() => {
     return chartData.reduce((sum, item) => sum + item.value, 0);
@@ -494,11 +541,14 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
               <div className="space-y-2">
                 {chartData.map((item) => {
                 const percentage = totalTraffic > 0 ? (item.value / totalTraffic) * 100 : 0;
-                const barPercent = (item.value / maxTotal) * 100;
+                const barPercent = maxTotal > 0 ? (item.value / maxTotal) * 100 : 0;
                 const isSelected = selectedRule === item.rawName;
-                
+                const noTraffic = !item.hasTraffic;
+
                 // Badge color based on rank
-                const badgeColor = item.rank === 0
+                const badgeColor = noTraffic
+                  ? "bg-muted text-muted-foreground"
+                  : item.rank === 0
                   ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                   : item.rank === 1
                   ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
@@ -509,10 +559,12 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                 return (
                   <button
                     key={item.rawName}
-                    onClick={() => handleRuleClick(item.rawName)}
+                    onClick={() => !noTraffic && handleRuleClick(item.rawName)}
                     className={cn(
                       "w-full p-2.5 rounded-xl border text-left transition-all duration-200",
-                      isSelected
+                      noTraffic
+                        ? "border-border/30 bg-card/30 opacity-50 cursor-default"
+                        : isSelected
                         ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                         : "border-border/50 bg-card/50 hover:bg-card hover:border-primary/30"
                     )}>
@@ -522,29 +574,32 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                         "w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0",
                         badgeColor
                       )}>
-                        {item.rank + 1}
+                        {noTraffic ? "–" : item.rank + 1}
                       </span>
-                      
+
                       <span className="flex-1 text-sm font-medium truncate" title={item.name}>
                         {item.name}
                       </span>
-                      
+
                       <span className="text-sm font-bold tabular-nums shrink-0">
-                        {formatBytes(item.value)}
+                        {noTraffic ? (
+                          <span className="text-xs font-normal text-muted-foreground">{t("noTrafficRecord")}</span>
+                        ) : formatBytes(item.value)}
                       </span>
                     </div>
 
-                    {/* Row 2: Progress bar + Stats */}
+                    {/* Row 2: Progress bar + Stats (hidden for zero-traffic) */}
+                    {!noTraffic && (
                     <div className="pl-7 space-y-1">
                       {/* Progress bar - dual color */}
                       <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
-                        <div 
-                          className="h-full bg-blue-500 dark:bg-blue-400" 
-                          style={{ width: `${(item.download / item.value) * barPercent}%` }}
+                        <div
+                          className="h-full bg-blue-500 dark:bg-blue-400"
+                          style={{ width: `${item.value > 0 ? (item.download / item.value) * barPercent : 0}%` }}
                         />
-                        <div 
-                          className="h-full bg-purple-500 dark:bg-purple-400" 
-                          style={{ width: `${(item.upload / item.value) * barPercent}%` }}
+                        <div
+                          className="h-full bg-purple-500 dark:bg-purple-400"
+                          style={{ width: `${item.value > 0 ? (item.upload / item.value) * barPercent : 0}%` }}
                         />
                       </div>
                       {/* Stats */}
@@ -560,6 +615,7 @@ export function InteractiveRuleStats({ data, activeBackendId }: InteractiveRuleS
                         <span className="tabular-nums">{percentage.toFixed(1)}%</span>
                       </div>
                     </div>
+                    )}
                   </button>
                 );
               })}

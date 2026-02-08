@@ -603,6 +603,70 @@ export class APIServer {
       return { message: 'Backend data cleared successfully' };
     });
 
+    // Clash API proxy endpoints
+    // Get providers/proxies from Clash backend
+    app.get('/api/clash/providers/proxies', async (request, reply) => {
+      const backendId = getBackendId(request);
+      if (backendId === null) {
+        return reply.status(404).send({ error: 'No backend specified or active' });
+      }
+      const backend = this.db.getBackend(backendId);
+      if (!backend) {
+        return reply.status(404).send({ error: 'Backend not found' });
+      }
+
+      // Derive Clash REST base URL from the stored WebSocket URL
+      const clashBaseUrl = backend.url
+        .replace('ws://', 'http://').replace('wss://', 'https://')
+        .replace(/\/connections\/?$/, '');
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (backend.token) {
+        headers['Authorization'] = `Bearer ${backend.token}`;
+      }
+
+      try {
+        const res = await fetch(`${clashBaseUrl}/providers/proxies`, { headers });
+        if (!res.ok) {
+          return reply.status(res.status).send({ error: `Clash API error: ${res.status}` });
+        }
+        return res.json();
+      } catch (err: any) {
+        return reply.status(502).send({ error: err.message || 'Failed to reach Clash API' });
+      }
+    });
+
+    // Get rules from Clash backend
+    app.get('/api/clash/rules', async (request, reply) => {
+      const backendId = getBackendId(request);
+      if (backendId === null) {
+        return reply.status(404).send({ error: 'No backend specified or active' });
+      }
+      const backend = this.db.getBackend(backendId);
+      if (!backend) {
+        return reply.status(404).send({ error: 'Backend not found' });
+      }
+
+      const clashBaseUrl = backend.url
+        .replace('ws://', 'http://').replace('wss://', 'https://')
+        .replace(/\/connections\/?$/, '');
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (backend.token) {
+        headers['Authorization'] = `Bearer ${backend.token}`;
+      }
+
+      try {
+        const res = await fetch(`${clashBaseUrl}/rules`, { headers });
+        if (!res.ok) {
+          return reply.status(res.status).send({ error: `Clash API error: ${res.status}` });
+        }
+        return res.json();
+      } catch (err: any) {
+        return reply.status(502).send({ error: err.message || 'Failed to reach Clash API' });
+      }
+    });
+
     // Database management APIs
     // Get database stats
     app.get('/api/db/stats', async () => {

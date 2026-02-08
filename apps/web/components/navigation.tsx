@@ -14,6 +14,7 @@ import {
   ExternalLink,
   ArrowUpCircle,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -202,11 +203,17 @@ export function Navigation({
             if (e.target === e.currentTarget) setAboutOpen(false);
           }}>
           <Card className="w-full max-w-[420px]">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Info className="w-5 h-5 text-primary" />
                 {aboutT("title")}
               </CardTitle>
+              <button
+                onClick={() => setAboutOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors -mr-1.5"
+                aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
             </CardHeader>
             <CardContent>
               {/* App Info */}

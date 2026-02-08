@@ -81,6 +81,36 @@ export interface Backend {
   updated_at: string;
 }
 
+export interface ClashProviderProxy {
+  alive: boolean;
+  name: string;
+  type: string;
+  now?: string;
+  all?: string[];
+  history?: Array<{ time: string; delay: number }>;
+}
+
+export interface ClashProvider {
+  name: string;
+  type: string;
+  vehicleType: string;
+  proxies: ClashProviderProxy[];
+}
+
+export interface ClashProvidersResponse {
+  providers: Record<string, ClashProvider>;
+}
+
+export interface ClashRule {
+  type: string;
+  payload: string;
+  proxy: string;
+}
+
+export interface ClashRulesResponse {
+  rules: ClashRule[];
+}
+
 function buildUrl(base: string, params: Record<string, string | number | undefined>): string {
   // Use simple URL construction for client-side relative URLs
   const searchParams = new URLSearchParams();
@@ -239,6 +269,12 @@ export const api = {
     }>(
       buildUrl(`${API_BASE}/stats/rules/chain-flow-all`, { backendId })
     ),
+
+  getClashProviders: (backendId?: number) =>
+    fetchJson<ClashProvidersResponse>(buildUrl(`${API_BASE}/clash/providers/proxies`, { backendId })),
+
+  getClashRules: (backendId?: number) =>
+    fetchJson<ClashRulesResponse>(buildUrl(`${API_BASE}/clash/rules`, { backendId })),
 
   search: (q: string) =>
     fetchJson<DomainStats[]>(
