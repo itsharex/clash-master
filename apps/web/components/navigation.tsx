@@ -205,7 +205,7 @@ export function Navigation({
           <Card className="w-full max-w-[420px]">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
-                <Info className="w-5 h-5 text-primary" />
+                <Info className="w-5 h-5" />
                 {aboutT("title")}
               </CardTitle>
               <button
@@ -282,8 +282,9 @@ export function Navigation({
                           {aboutT("checkingUpdate")}
                         </span>
                       ) : latestVersion ? (
-                        <span className="text-sm text-muted-foreground">
-                          ✓ {aboutT("upToDate")}
+                        <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+                          <span className="font-mono tabular-nums">v{latestVersion}</span>
+                          <span className="text-emerald-500">✓</span>
                         </span>
                       ) : (
                         <Button

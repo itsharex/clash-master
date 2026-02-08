@@ -555,14 +555,24 @@ export function BackendConfigDialog({
   const handleUpdate = async (id: number) => {
     setLoading(true);
     try {
-      const url = buildUrl(editFormData.host, editFormData.port, editFormData.ssl);
+      const url = buildUrl(
+        editFormData.host,
+        editFormData.port,
+        editFormData.ssl,
+      );
       await api.updateBackend(id, {
         name: editFormData.name,
         url,
         token: editFormData.token || undefined,
       });
       setEditingId(null);
-      setEditFormData({ name: "", host: "", port: "9090", ssl: false, token: "" });
+      setEditFormData({
+        name: "",
+        host: "",
+        port: "9090",
+        ssl: false,
+        token: "",
+      });
       await loadBackends();
       await onBackendChange?.();
     } catch (error: any) {
@@ -707,7 +717,13 @@ export function BackendConfigDialog({
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditFormData({ name: "", host: "", port: "9090", ssl: false, token: "" });
+    setEditFormData({
+      name: "",
+      host: "",
+      port: "9090",
+      ssl: false,
+      token: "",
+    });
   };
 
   if (!open) return null;
@@ -823,7 +839,10 @@ export function BackendConfigDialog({
                             <Switch
                               checked={editFormData.ssl}
                               onCheckedChange={(checked) =>
-                                setEditFormData({ ...editFormData, ssl: checked })
+                                setEditFormData({
+                                  ...editFormData,
+                                  ssl: checked,
+                                })
                               }
                             />
                             <label className="text-sm">{t("useSsl")}</label>
@@ -1071,7 +1090,13 @@ export function BackendConfigDialog({
                             variant="ghost"
                             onClick={() => {
                               setShowAddForm(false);
-                              setFormData({ name: "", host: "", port: "9090", ssl: false, token: "" });
+                              setFormData({
+                                name: "",
+                                host: "",
+                                port: "9090",
+                                ssl: false,
+                                token: "",
+                              });
                             }}
                             className="flex-shrink-0">
                             <X className="w-4 h-4 mr-2" />

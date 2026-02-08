@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import type { StatsDatabase } from './db.js';
+import { realtimeStore } from './realtime.js';
 
 export class APIServer {
   private app: ReturnType<typeof Fastify> | null = null;
@@ -50,12 +51,25 @@ export class APIServer {
       }
 
       const summary = this.db.getSummary(backendId);
-      const topDomains = this.db.getTopDomains(backendId, 10);
-      const topIPs = this.db.getTopIPs(backendId, 10);
-      const proxyStats = this.db.getProxyStats(backendId);
+      const summaryWithRealtime = realtimeStore.applySummaryDelta(backendId, summary);
+      const topDomains = realtimeStore.mergeTopDomains(
+        backendId,
+        this.db.getTopDomains(backendId, 10),
+        10
+      );
+      const topIPs = realtimeStore.mergeTopIPs(
+        backendId,
+        this.db.getTopIPs(backendId, 10),
+        10
+      );
+      const proxyStats = realtimeStore.mergeProxyStats(
+        backendId,
+        this.db.getProxyStats(backendId)
+      );
       const ruleStats = this.db.getRuleStats(backendId);
       const hourlyStats = this.db.getHourlyStats(backendId, 24);
       const todayTraffic = this.db.getTodayTraffic(backendId);
+      const todayDelta = realtimeStore.getTodayDelta(backendId);
 
       return {
         backend: {
@@ -64,15 +78,15 @@ export class APIServer {
           isActive: backend.is_active,
           listening: backend.listening,
         },
-        totalConnections: summary.totalConnections,
-        totalUpload: summary.totalUpload,
-        totalDownload: summary.totalDownload,
+        totalConnections: summaryWithRealtime.totalConnections,
+        totalUpload: summaryWithRealtime.totalUpload,
+        totalDownload: summaryWithRealtime.totalDownload,
         totalDomains: summary.uniqueDomains,
         totalIPs: summary.uniqueIPs,
         totalRules: ruleStats.length,
         totalProxies: proxyStats.length,
-        todayUpload: todayTraffic.upload,
-        todayDownload: todayTraffic.download,
+        todayUpload: todayTraffic.upload + todayDelta.upload,
+        todayDownload: todayTraffic.download + todayDelta.download,
         topDomains,
         topIPs,
         proxyStats,
@@ -229,7 +243,10 @@ export class APIServer {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return this.db.getProxyStats(backendId);
+      return realtimeStore.mergeProxyStats(
+        backendId,
+        this.db.getProxyStats(backendId)
+      );
     });
 
     // Get rule statistics for a specific backend
@@ -321,7 +338,10 @@ export class APIServer {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return this.db.getCountryStats(backendId);
+      return realtimeStore.mergeCountryStats(
+        backendId,
+        this.db.getCountryStats(backendId)
+      );
     });
 
     // Get hourly statistics for a specific backend
@@ -345,7 +365,9 @@ export class APIServer {
       }
 
       const { minutes = 30 } = request.query as { minutes?: string };
-      return this.db.getTrafficTrend(backendId, parseInt(minutes as string) || 30);
+      const windowMinutes = parseInt(minutes as string) || 30;
+      const base = this.db.getTrafficTrend(backendId, windowMinutes);
+      return realtimeStore.mergeTrend(backendId, base, windowMinutes, 1);
     });
 
     // Get traffic trend aggregated by time buckets for chart display
@@ -357,11 +379,10 @@ export class APIServer {
       }
 
       const { minutes = 30, bucketMinutes = 1 } = request.query as { minutes?: string; bucketMinutes?: string };
-      return this.db.getTrafficTrendAggregated(
-        backendId,
-        parseInt(minutes as string) || 30,
-        parseInt(bucketMinutes as string) || 1
-      );
+      const windowMinutes = parseInt(minutes as string) || 30;
+      const bucket = parseInt(bucketMinutes as string) || 1;
+      const base = this.db.getTrafficTrendAggregated(backendId, windowMinutes, bucket);
+      return realtimeStore.mergeTrend(backendId, base, windowMinutes, bucket);
     });
 
     // Get recent connections for a specific backend

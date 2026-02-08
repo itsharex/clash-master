@@ -1,6 +1,7 @@
 import { WebSocketServer as WSServer, WebSocket } from 'ws';
 import type { StatsSummary } from '@clashmaster/shared';
 import type { StatsDatabase } from './db.js';
+import { realtimeStore } from './realtime.js';
 
 export interface WebSocketMessage {
   type: 'stats' | 'ping' | 'pong' | 'subscribe';
@@ -99,13 +100,24 @@ export class StatsWebSocketServer {
     }
 
     const summary = this.db.getSummary(backendId);
-    const topDomains = this.db.getTopDomains(backendId, 100);
-    const topIPs = this.db.getTopIPs(backendId, 100);
-    const proxyStats = this.db.getProxyStats(backendId);
+    const topDomains = realtimeStore.mergeTopDomains(
+      backendId,
+      this.db.getTopDomains(backendId, 100),
+      100
+    );
+    const topIPs = realtimeStore.mergeTopIPs(
+      backendId,
+      this.db.getTopIPs(backendId, 100),
+      100
+    );
+    const proxyStats = realtimeStore.mergeProxyStats(
+      backendId,
+      this.db.getProxyStats(backendId)
+    );
     const ruleStats = this.db.getRuleStats(backendId);
     const hourly = this.db.getHourlyStats(backendId, 24);
 
-    return {
+    const stats: StatsSummary = {
       totalUpload: summary.totalUpload,
       totalDownload: summary.totalDownload,
       totalConnections: summary.totalConnections,
@@ -118,6 +130,7 @@ export class StatsWebSocketServer {
       ruleStats,
       hourlyStats: hourly
     };
+    return realtimeStore.applySummaryDelta(backendId, stats);
   }
 
   private async sendStatsToClient(ws: WebSocket) {
