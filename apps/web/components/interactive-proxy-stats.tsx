@@ -12,6 +12,8 @@ import { CountryFlag, extractCountryCodeFromText, stripLeadingFlagEmoji } from "
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { api, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { keepPreviousByIdentity } from "@/lib/query-placeholder";
 import {
   getProxiesQueryKey,
   getProxyDomainsQueryKey,
@@ -72,10 +74,8 @@ export function InteractiveProxyStats({
   const t = useTranslations("proxies");
   const domainsT = useTranslations("domains");
   const backendT = useTranslations("dashboard");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const stableTimeRange = useStableTimeRange(timeRange);
+  const detailTimeRange = stableTimeRange;
 
   const proxyListQuery = useQuery({
     queryKey: getProxiesQueryKey(activeBackendId, 50, stableTimeRange),
@@ -129,27 +129,35 @@ export function InteractiveProxyStats({
   }, [chartData, selectedProxy]);
 
   const proxyDomainsQuery = useQuery({
-    queryKey: getProxyDomainsQueryKey(selectedProxy, activeBackendId, stableTimeRange),
+    queryKey: getProxyDomainsQueryKey(selectedProxy, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getProxyDomains(
         selectedProxy!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedProxy,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        chain: selectedProxy ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const proxyIPsQuery = useQuery({
-    queryKey: getProxyIPsQueryKey(selectedProxy, activeBackendId, stableTimeRange),
+    queryKey: getProxyIPsQueryKey(selectedProxy, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getProxyIPs(
         selectedProxy!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedProxy,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        chain: selectedProxy ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const proxyDomains = proxyDomainsQuery.data ?? [];

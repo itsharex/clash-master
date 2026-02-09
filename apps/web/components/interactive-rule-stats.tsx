@@ -20,6 +20,8 @@ import {
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { api, type ClashRulesResponse, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { keepPreviousByIdentity } from "@/lib/query-placeholder";
 import {
   getRuleDomainsQueryKey,
   getRuleIPsQueryKey,
@@ -33,6 +35,7 @@ import { CountryFlag } from "@/components/country-flag";
 import { Favicon } from "@/components/favicon";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { DomainExpandedDetails, IPExpandedDetails } from "@/components/stats-tables/expanded-details";
+import { ExpandReveal } from "@/components/ui/expand-reveal";
 import { UnifiedRuleChainFlow } from "@/components/rule-chain-flow";
 import type { RuleStats, DomainStats, IPStats } from "@clashmaster/shared";
 
@@ -111,10 +114,8 @@ export function InteractiveRuleStats({
   const domainsT = useTranslations("domains");
   const ipsT = useTranslations("ips");
   const backendT = useTranslations("dashboard");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const stableTimeRange = useStableTimeRange(timeRange);
+  const detailTimeRange = stableTimeRange;
 
   const ruleListQuery = useQuery({
     queryKey: getRulesQueryKey(activeBackendId, 50, stableTimeRange),
@@ -265,7 +266,7 @@ export function InteractiveRuleStats({
   };
 
   const expandedDomainProxyQuery = useQuery({
-    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, stableTimeRange, {
+    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
       rule: selectedRule ?? undefined,
     }),
     queryFn: () =>
@@ -273,14 +274,19 @@ export function InteractiveRuleStats({
         selectedRule!,
         expandedDomain!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
   });
 
   const expandedDomainIPDetailsQuery = useQuery({
-    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, stableTimeRange, {
+    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
       rule: selectedRule ?? undefined,
     }),
     queryFn: () =>
@@ -288,14 +294,19 @@ export function InteractiveRuleStats({
         selectedRule!,
         expandedDomain!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
   });
 
   const expandedIPProxyQuery = useQuery({
-    queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, stableTimeRange, {
+    queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, detailTimeRange, {
       rule: selectedRule ?? undefined,
     }),
     queryFn: () =>
@@ -303,14 +314,19 @@ export function InteractiveRuleStats({
         selectedRule!,
         expandedIP!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        ip: expandedIP ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
   });
 
   const expandedIPDomainDetailsQuery = useQuery({
-    queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, stableTimeRange, {
+    queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, detailTimeRange, {
       rule: selectedRule ?? undefined,
     }),
     queryFn: () =>
@@ -318,34 +334,47 @@ export function InteractiveRuleStats({
         selectedRule!,
         expandedIP!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        ip: expandedIP ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
   });
 
   const ruleDomainsQuery = useQuery({
-    queryKey: getRuleDomainsQueryKey(selectedRule, activeBackendId, stableTimeRange),
+    queryKey: getRuleDomainsQueryKey(selectedRule, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getRuleDomains(
         selectedRule!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        rule: selectedRule ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const ruleIPsQuery = useQuery({
-    queryKey: getRuleIPsQueryKey(selectedRule, activeBackendId, stableTimeRange),
+    queryKey: getRuleIPsQueryKey(selectedRule, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getRuleIPs(
         selectedRule!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        rule: selectedRule ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const ruleDomains: DomainStats[] = ruleDomainsQuery.data ?? [];
@@ -1099,24 +1128,26 @@ export function InteractiveRuleStats({
 
                               {/* Expanded Details: Proxy Traffic + Associated IPs */}
                               {isExpanded && (
-                                <DomainExpandedDetails
-                                  domain={domain}
-                                  proxyStats={expandedDomainProxyQuery.data ?? []}
-                                  proxyStatsLoading={
-                                    expandedDomainProxyQuery.isLoading &&
-                                    !expandedDomainProxyQuery.data
-                                  }
-                                  ipDetails={expandedDomainIPDetailsQuery.data ?? []}
-                                  ipDetailsLoading={
-                                    expandedDomainIPDetailsQuery.isLoading &&
-                                    !expandedDomainIPDetailsQuery.data
-                                  }
-                                  labels={{
-                                    proxyTraffic: domainsT("proxyTraffic"),
-                                    associatedIPs: domainsT("associatedIPs"),
-                                    conn: domainsT("conn"),
-                                  }}
-                                />
+                                <ExpandReveal>
+                                  <DomainExpandedDetails
+                                    domain={domain}
+                                    proxyStats={expandedDomainProxyQuery.data ?? []}
+                                    proxyStatsLoading={
+                                      expandedDomainProxyQuery.isLoading &&
+                                      !expandedDomainProxyQuery.data
+                                    }
+                                    ipDetails={expandedDomainIPDetailsQuery.data ?? []}
+                                    ipDetailsLoading={
+                                      expandedDomainIPDetailsQuery.isLoading &&
+                                      !expandedDomainIPDetailsQuery.data
+                                    }
+                                    labels={{
+                                      proxyTraffic: domainsT("proxyTraffic"),
+                                      associatedIPs: domainsT("associatedIPs"),
+                                      conn: domainsT("conn"),
+                                    }}
+                                  />
+                                </ExpandReveal>
                               )}
                             </div>
                           );
@@ -1470,25 +1501,27 @@ export function InteractiveRuleStats({
 
                               {/* Expanded Details: Proxy Traffic + Associated Domains */}
                               {isExpanded && (
-                                <IPExpandedDetails
-                                  ip={ip}
-                                  proxyStats={expandedIPProxyQuery.data ?? []}
-                                  proxyStatsLoading={
-                                    expandedIPProxyQuery.isLoading &&
-                                    !expandedIPProxyQuery.data
-                                  }
-                                  domainDetails={expandedIPDomainDetailsQuery.data ?? []}
-                                  domainDetailsLoading={
-                                    expandedIPDomainDetailsQuery.isLoading &&
-                                    !expandedIPDomainDetailsQuery.data
-                                  }
-                                  associatedDomainsIcon="link"
-                                  labels={{
-                                    proxyTraffic: ipsT("proxyTraffic"),
-                                    associatedDomains: ipsT("associatedDomains"),
-                                    conn: ipsT("conn"),
-                                  }}
-                                />
+                                <ExpandReveal>
+                                  <IPExpandedDetails
+                                    ip={ip}
+                                    proxyStats={expandedIPProxyQuery.data ?? []}
+                                    proxyStatsLoading={
+                                      expandedIPProxyQuery.isLoading &&
+                                      !expandedIPProxyQuery.data
+                                    }
+                                    domainDetails={expandedIPDomainDetailsQuery.data ?? []}
+                                    domainDetailsLoading={
+                                      expandedIPDomainDetailsQuery.isLoading &&
+                                      !expandedIPDomainDetailsQuery.data
+                                    }
+                                    associatedDomainsIcon="link"
+                                    labels={{
+                                      proxyTraffic: ipsT("proxyTraffic"),
+                                      associatedDomains: ipsT("associatedDomains"),
+                                      conn: ipsT("conn"),
+                                    }}
+                                  />
+                                </ExpandReveal>
                               )}
                             </div>
                           );

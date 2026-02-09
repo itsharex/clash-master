@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Favicon } from "@/components/favicon";
 import { DomainExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
+import { ExpandReveal } from "@/components/ui/expand-reveal";
 import { formatBytes, formatNumber, formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { DomainStats } from "@clashmaster/shared";
 import { api, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
 import {
   getDomainIPDetailsQueryKey,
   getDomainProxyStatsQueryKey,
@@ -38,10 +40,8 @@ type PageSize = typeof PAGE_SIZE_OPTIONS[number];
 
 export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) {
   const t = useTranslations("domains");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const stableTimeRange = useStableTimeRange(timeRange);
+  const detailTimeRange = stableTimeRange;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("totalDownload");
@@ -96,17 +96,33 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
   }, [activeBackendId]);
 
   const expandedDomainProxyQuery = useQuery({
-    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, stableTimeRange),
-    queryFn: () => api.getDomainProxyStats(expandedDomain!, activeBackendId, stableTimeRange),
+    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange),
+    queryFn: () => api.getDomainProxyStats(expandedDomain!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
+        | { domain?: string; backendId?: number | null }
+        | null;
+      if (!prevKey) return undefined;
+      if (prevKey.domain !== (expandedDomain ?? "")) return undefined;
+      if (prevKey.backendId !== (activeBackendId ?? null)) return undefined;
+      return previousData;
+    },
   });
 
   const expandedDomainIPDetailsQuery = useQuery({
-    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, stableTimeRange),
-    queryFn: () => api.getDomainIPDetails(expandedDomain!, activeBackendId, stableTimeRange),
+    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, detailTimeRange),
+    queryFn: () => api.getDomainIPDetails(expandedDomain!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
+        | { domain?: string; backendId?: number | null }
+        | null;
+      if (!prevKey) return undefined;
+      if (prevKey.domain !== (expandedDomain ?? "")) return undefined;
+      if (prevKey.backendId !== (activeBackendId ?? null)) return undefined;
+      return previousData;
+    },
   });
 
   const handleSort = (key: SortKey) => {
@@ -407,6 +423,7 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
 
                 {/* Expanded Details: Proxy Traffic + IP List */}
                 {isExpanded && (
+                  <ExpandReveal>
                     <DomainExpandedDetails
                       domain={domain}
                       proxyStats={expandedDomainProxyQuery.data ?? []}
@@ -425,6 +442,7 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
                       conn: t("conn"),
                     }}
                   />
+                  </ExpandReveal>
                 )}
               </div>
             );

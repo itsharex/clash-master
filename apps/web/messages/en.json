@@ -245,7 +245,9 @@
     "loadingChainFlow": "Loading chain flow...",
     "showAll": "Panorama",
     "activePolicy": "All Policies",
-    "noTrafficRecord": "No traffic record"
+    "noTrafficRecord": "No traffic record",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen"
   },
   "network": {
     "title": "Network",

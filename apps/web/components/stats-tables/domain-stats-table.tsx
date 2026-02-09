@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,6 +27,8 @@ import {
 import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { api, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { keepPreviousByIdentity } from "@/lib/query-placeholder";
 import {
   getDomainIPDetailsQueryKey,
   getDomainProxyStatsQueryKey,
@@ -34,6 +36,7 @@ import {
 import { Favicon } from "@/components/favicon";
 import { DomainExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
+import { ExpandReveal } from "@/components/ui/expand-reveal";
 import {
   PAGE_SIZE_OPTIONS,
   getPageNumbers,
@@ -71,10 +74,7 @@ export function DomainStatsTable({
   showProxyTrafficInExpand = true,
 }: DomainStatsTableProps) {
   const t = useTranslations("domains");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const detailTimeRange = useStableTimeRange(timeRange);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(10);
@@ -89,7 +89,7 @@ export function DomainStatsTable({
   }, [activeBackendId, sourceIP, sourceChain, richExpand]);
 
   const expandedDomainProxyQuery = useQuery({
-    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, stableTimeRange, {
+    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
       sourceIP,
       sourceChain,
     }),
@@ -97,16 +97,22 @@ export function DomainStatsTable({
       api.getDomainProxyStats(
         expandedDomain!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
         sourceIP,
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        sourceIP: sourceIP ?? "",
+        sourceChain: sourceChain ?? "",
+      }),
   });
 
   const expandedDomainIPDetailsQuery = useQuery({
-    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, stableTimeRange, {
+    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
       sourceIP,
       sourceChain,
     }),
@@ -114,12 +120,18 @@ export function DomainStatsTable({
       api.getDomainIPDetails(
         expandedDomain!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
         sourceIP,
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedDomain,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        sourceIP: sourceIP ?? "",
+        sourceChain: sourceChain ?? "",
+      }),
   });
 
   const handleSort = (key: DomainSortKey) => {
@@ -383,26 +395,28 @@ export function DomainStatsTable({
                     </div>
 
                     {isExpanded && (
-                      <DomainExpandedDetails
-                        domain={domain}
-                        richExpand={richExpand}
-                        proxyStats={expandedDomainProxyQuery.data ?? []}
-                        proxyStatsLoading={
-                          expandedDomainProxyQuery.isLoading &&
-                          !expandedDomainProxyQuery.data
-                        }
-                        ipDetails={expandedDomainIPDetailsQuery.data ?? []}
-                        ipDetailsLoading={
-                          expandedDomainIPDetailsQuery.isLoading &&
-                          !expandedDomainIPDetailsQuery.data
-                        }
-                        labels={{
-                          proxyTraffic: t("proxyTraffic"),
-                          associatedIPs: t("associatedIPs"),
-                          conn: t("conn"),
-                        }}
-                        showProxyTraffic={showProxyTrafficInExpand}
-                      />
+                      <ExpandReveal>
+                        <DomainExpandedDetails
+                          domain={domain}
+                          richExpand={richExpand}
+                          proxyStats={expandedDomainProxyQuery.data ?? []}
+                          proxyStatsLoading={
+                            expandedDomainProxyQuery.isLoading &&
+                            !expandedDomainProxyQuery.data
+                          }
+                          ipDetails={expandedDomainIPDetailsQuery.data ?? []}
+                          ipDetailsLoading={
+                            expandedDomainIPDetailsQuery.isLoading &&
+                            !expandedDomainIPDetailsQuery.data
+                          }
+                          labels={{
+                            proxyTraffic: t("proxyTraffic"),
+                            associatedIPs: t("associatedIPs"),
+                            conn: t("conn"),
+                          }}
+                          showProxyTraffic={showProxyTrafficInExpand}
+                        />
+                      </ExpandReveal>
                     )}
                   </div>
                 );

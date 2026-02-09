@@ -25,8 +25,10 @@ import { formatBytes, formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { IPExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
+import { ExpandReveal } from "@/components/ui/expand-reveal";
 import type { IPStats } from "@clashmaster/shared";
 import { api, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
 import {
   getIPDomainDetailsQueryKey,
   getIPProxyStatsQueryKey,
@@ -78,10 +80,8 @@ const getIPColor = (ip: string) => {
 
 export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
   const t = useTranslations("ips");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const stableTimeRange = useStableTimeRange(timeRange);
+  const detailTimeRange = stableTimeRange;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("totalDownload");
@@ -138,17 +138,33 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
   }, [activeBackendId]);
 
   const expandedIPProxyQuery = useQuery({
-    queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, stableTimeRange),
-    queryFn: () => api.getIPProxyStats(expandedIP!, activeBackendId, stableTimeRange),
+    queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, detailTimeRange),
+    queryFn: () => api.getIPProxyStats(expandedIP!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedIP,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
+        | { ip?: string; backendId?: number | null }
+        | null;
+      if (!prevKey) return undefined;
+      if (prevKey.ip !== (expandedIP ?? "")) return undefined;
+      if (prevKey.backendId !== (activeBackendId ?? null)) return undefined;
+      return previousData;
+    },
   });
 
   const expandedIPDomainDetailsQuery = useQuery({
-    queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, stableTimeRange),
-    queryFn: () => api.getIPDomainDetails(expandedIP!, activeBackendId, stableTimeRange),
+    queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, detailTimeRange),
+    queryFn: () => api.getIPDomainDetails(expandedIP!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedIP,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
+        | { ip?: string; backendId?: number | null }
+        | null;
+      if (!prevKey) return undefined;
+      if (prevKey.ip !== (expandedIP ?? "")) return undefined;
+      if (prevKey.backendId !== (activeBackendId ?? null)) return undefined;
+      return previousData;
+    },
   });
 
   const handleSort = (key: SortKey) => {
@@ -474,6 +490,7 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
 
                 {/* Expanded Details: Proxy Traffic + Domains List */}
                 {isExpanded && (
+                  <ExpandReveal>
                     <IPExpandedDetails
                       ip={ip}
                       proxyStats={expandedIPProxyQuery.data ?? []}
@@ -493,6 +510,7 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
                       conn: t("conn"),
                     }}
                   />
+                  </ExpandReveal>
                 )}
               </div>
             );

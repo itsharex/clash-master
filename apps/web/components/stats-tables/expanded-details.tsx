@@ -60,6 +60,41 @@ function LoadingBlock() {
   );
 }
 
+const MAX_ASSOCIATED_PLACEHOLDERS = 12;
+
+function AssociatedLoadingList({ count }: { count: number }) {
+  const safeCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  const renderCount = safeCount > 0 ? Math.min(safeCount, MAX_ASSOCIATED_PLACEHOLDERS) : 3;
+  const remaining = safeCount > renderCount ? safeCount - renderCount : 0;
+
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: renderCount }).map((_, index) => (
+        <div
+          key={`placeholder-${index}`}
+          className="px-3 py-2 rounded-lg bg-card border border-border/50 animate-pulse"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="h-3.5 w-28 rounded bg-secondary/80" />
+            <div className="h-3 w-10 rounded bg-secondary/70" />
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-secondary/70 mb-2" />
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-16 rounded bg-secondary/70" />
+            <div className="h-3 w-14 rounded bg-secondary/70" />
+            <div className="h-3 w-12 rounded bg-secondary/70" />
+          </div>
+        </div>
+      ))}
+      {remaining > 0 && (
+        <div className="px-1 pt-1 text-[11px] text-muted-foreground tabular-nums">
+          +{remaining}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrafficBar({
   percent,
   downloadPercent,
@@ -289,7 +324,7 @@ export function DomainExpandedDetails({
             {labels.associatedIPs}
           </p>
           {ipDetailsLoading ? (
-            <LoadingBlock />
+            <AssociatedLoadingList count={domain.ips?.length ?? 0} />
           ) : ipDetails.length > 0 ? (
             <div className="space-y-2">
               {ipDetails.map((ipStat) => {
@@ -415,7 +450,7 @@ export function IPExpandedDetails({
             {labels.associatedDomains}
           </p>
           {domainDetailsLoading ? (
-            <LoadingBlock />
+            <AssociatedLoadingList count={ip.domains?.length ?? 0} />
           ) : domainDetails.length > 0 ? (
             <div className="space-y-2">
               {domainDetails.map((domain) => {

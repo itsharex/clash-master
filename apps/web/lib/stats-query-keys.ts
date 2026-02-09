@@ -1,14 +1,6 @@
 import type { TimeRange } from "@/lib/api";
 
-type DomainQueryParams = {
-  offset?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: string;
-  search?: string;
-};
-
-type IPQueryParams = {
+type PaginatedQueryParams = {
   offset?: number;
   limit?: number;
   sortBy?: string;
@@ -170,7 +162,7 @@ export function getIPDomainDetailsQueryKey(
 
 export function getDomainsQueryKey(
   backendId?: number,
-  params?: DomainQueryParams,
+  params?: PaginatedQueryParams,
   range?: TimeRange,
 ) {
   return [
@@ -190,7 +182,7 @@ export function getDomainsQueryKey(
 
 export function getIPsQueryKey(
   backendId?: number,
-  params?: IPQueryParams,
+  params?: PaginatedQueryParams,
   range?: TimeRange,
 ) {
   return [

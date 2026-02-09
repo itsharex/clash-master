@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Favicon } from "@/components/favicon";
 import { formatBytes } from "@/lib/utils";
 import { api, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
 import { getDomainsQueryKey } from "@/lib/stats-query-keys";
 import type { DomainStats } from "@clashmaster/shared";
 
@@ -79,10 +80,7 @@ export function TopDomainsChart({ activeBackendId, timeRange }: TopDomainsChartP
   // Track container width to hide labels on small screens
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const stableTimeRange = useStableTimeRange(timeRange);
 
   const domainsQuery = useQuery({
     queryKey: getDomainsQueryKey(

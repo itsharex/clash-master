@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Loader2, BarChart3, Link2, Smartphone } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell, LabelList } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,6 +15,8 @@ import {
   getDeviceDomainsQueryKey,
   getDeviceIPsQueryKey,
 } from "@/lib/stats-query-keys";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { keepPreviousByIdentity } from "@/lib/query-placeholder";
 import { Favicon } from "@/components/favicon";
 import { DomainStatsTable, IPStatsTable } from "@/components/stats-tables";
 import { COLORS } from "@/lib/stats-utils";
@@ -47,10 +49,7 @@ export function InteractiveDeviceStats({
   const t = useTranslations("devices");
   const domainsT = useTranslations("domains");
   const backendT = useTranslations("dashboard");
-  const stableTimeRange = useMemo<TimeRange | undefined>(() => {
-    if (!timeRange?.start && !timeRange?.end) return undefined;
-    return { start: timeRange.start, end: timeRange.end };
-  }, [timeRange?.start, timeRange?.end]);
+  const detailTimeRange = useStableTimeRange(timeRange);
   
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("domains");
@@ -94,27 +93,35 @@ export function InteractiveDeviceStats({
   }, [chartData, selectedDevice]);
 
   const deviceDomainsQuery = useQuery({
-    queryKey: getDeviceDomainsQueryKey(selectedDevice, activeBackendId, stableTimeRange),
+    queryKey: getDeviceDomainsQueryKey(selectedDevice, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getDeviceDomains(
         selectedDevice!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedDevice,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        sourceIP: selectedDevice ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const deviceIPsQuery = useQuery({
-    queryKey: getDeviceIPsQueryKey(selectedDevice, activeBackendId, stableTimeRange),
+    queryKey: getDeviceIPsQueryKey(selectedDevice, activeBackendId, detailTimeRange),
     queryFn: () =>
       api.getDeviceIPs(
         selectedDevice!,
         activeBackendId,
-        stableTimeRange,
+        detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedDevice,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        sourceIP: selectedDevice ?? "",
+        backendId: activeBackendId ?? null,
+      }),
   });
 
   const deviceDomains = deviceDomainsQuery.data ?? [];

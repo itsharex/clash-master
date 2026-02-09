@@ -41,26 +41,10 @@ function resolveApiBase(): string {
 
 const API_BASE = resolveApiBase();
 const DETAIL_FETCH_LIMIT = 5000;
-const GET_DEDUP_TTL_MS = 250;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
-const recentGetResponses = new Map<string, { expiresAt: number; data: unknown }>();
-
-function pruneRecentGetResponses(now: number) {
-  if (recentGetResponses.size <= 200) return;
-  for (const [key, entry] of recentGetResponses) {
-    if (entry.expiresAt <= now) {
-      recentGetResponses.delete(key);
-    }
-  }
-}
 
 async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any): Promise<T> {
   if (method === "GET") {
-    const now = Date.now();
-    const recent = recentGetResponses.get(url);
-    if (recent && recent.expiresAt > now) {
-      return recent.data as T;
-    }
     const inflight = inflightGetRequests.get(url);
     if (inflight) {
       return inflight as Promise<T>;
@@ -71,7 +55,7 @@ async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELET
     method,
     headers: {},
   };
-  
+
   // Only set Content-Type when there's a body
   if (body && method !== 'GET') {
     options.headers = {
@@ -79,21 +63,14 @@ async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELET
     };
     options.body = JSON.stringify(body);
   }
-  
+
   const requestPromise = (async () => {
-    console.log(`[API] ${method} ${url}`);
     const res = await fetch(url, options);
     if (!res.ok) {
       console.error(`[API] Error ${res.status}: ${url}`);
       throw new Error(`API error: ${res.status}`);
     }
-    const json = await res.json();
-    if (method === "GET") {
-      const now = Date.now();
-      recentGetResponses.set(url, { data: json, expiresAt: now + GET_DEDUP_TTL_MS });
-      pruneRecentGetResponses(now);
-    }
-    return json as T;
+    return await res.json() as T;
   })();
 
   if (method === "GET") {
@@ -577,7 +554,8 @@ export function getPresetTimeRange(
   preset: "1m" | "5m" | "15m" | "30m" | "7d" | "30d" | "24h" | "today",
 ): TimeRange {
   const end = new Date();
-  const start = new Date();
+  end.setMilliseconds(0);
+  const start = new Date(end);
   
   switch (preset) {
     case "1m":

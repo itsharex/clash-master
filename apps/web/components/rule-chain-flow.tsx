@@ -46,6 +46,7 @@ interface MergedChainNode {
   totalDownload: number;
   totalConnections: number;
   rules: string[];
+  _zeroTraffic?: boolean;
 }
 
 interface AllChainFlowData {
@@ -162,10 +163,10 @@ function MergedAnimatedFlowEdge({
 function MergedChainNodeComponent({
   data,
 }: {
-  data: MergedChainNode & { dimmed?: boolean; _zeroTraffic?: boolean };
+  data: MergedChainNode & { dimmed?: boolean };
 }) {
   const dimmed = data.dimmed;
-  const zeroTraffic = (data as any)._zeroTraffic;
+  const zeroTraffic = data._zeroTraffic;
   const wrapStyle: React.CSSProperties = {
     opacity: dimmed ? 0.12 : zeroTraffic ? 0.5 : 1,
     filter: zeroTraffic ? "grayscale(100%)" : undefined,
@@ -377,6 +378,7 @@ function FlowRenderer({
 }) {
   const { fitView } = useReactFlow();
   const { resolvedTheme } = useTheme();
+  const t = useTranslations("rules");
   const isDark = resolvedTheme === "dark";
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -520,7 +522,7 @@ function FlowRenderer({
       data: {
         ...node,
         dimmed: activeNodeSet ? !activeNodeSet.has(idx) : false,
-        _zeroTraffic: !!(node as any)._zeroTraffic,
+        _zeroTraffic: !!node._zeroTraffic,
       },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
@@ -536,7 +538,7 @@ function FlowRenderer({
       const isToProxy = targetNode?.nodeType === "proxy";
       const isDimmed = activeLinkSet ? !activeLinkSet.has(idx) : false;
       const isZeroTraffic = !!(
-        (sourceNode as any)?._zeroTraffic || (targetNode as any)?._zeroTraffic
+        sourceNode?._zeroTraffic || targetNode?._zeroTraffic
       );
       return {
         id: `e-${link.source}-${link.target}`,
@@ -653,7 +655,7 @@ function FlowRenderer({
       <Controls showInteractive={false} showFitView={false}>
         <ControlButton
           onClick={onToggleFullscreen}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+          title={isFullscreen ? t("exitFullscreen") : t("fullscreen")}>
           {isFullscreen ? (
             <Minimize2 className="h-4 w-4" />
           ) : (
@@ -871,7 +873,7 @@ export function UnifiedRuleChainFlow({
             totalConnections: 0,
             rules: [],
             _zeroTraffic: true,
-          } as MergedChainNode & { _zeroTraffic?: boolean } as any);
+          });
         }
       }
     }

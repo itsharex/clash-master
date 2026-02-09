@@ -21,6 +21,10 @@ function getContinentColor(continent: string): string {
   return CONTINENT_COLORS[continent] || CONTINENT_COLORS.Unknown;
 }
 
+function formatBytesNoWrap(value: number): string {
+  return formatBytes(value).replace(" ", "\u00A0");
+}
+
 export function CountryTrafficList({ data }: CountryTrafficListProps) {
   const countries = useMemo(() => {
     if (!data) return [];
@@ -70,8 +74,8 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
             <div className="space-y-1.5">
               {/* Total */}
               <div className="flex items-baseline justify-between">
-                <span className="text-lg font-bold tabular-nums">
-                  {formatBytes(country.total)}
+                <span className="text-base sm:text-lg font-bold tabular-nums whitespace-nowrap">
+                  {formatBytesNoWrap(country.total)}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {percentage.toFixed(1)}%
@@ -88,13 +92,13 @@ export function CountryTrafficList({ data }: CountryTrafficListProps) {
 
               {/* DL/UL row */}
               <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-0.5 text-blue-500">
+                <span className="flex items-center gap-0.5 text-blue-500 whitespace-nowrap">
                   <ArrowDown className="w-3 h-3" />
-                  {formatBytes(country.totalDownload)}
+                  {formatBytesNoWrap(country.totalDownload)}
                 </span>
-                <span className="flex items-center gap-0.5 text-purple-500">
+                <span className="flex items-center gap-0.5 text-purple-500 whitespace-nowrap">
                   <ArrowUp className="w-3 h-3" />
-                  {formatBytes(country.totalUpload)}
+                  {formatBytesNoWrap(country.totalUpload)}
                 </span>
               </div>
 
