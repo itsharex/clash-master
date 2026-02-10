@@ -112,6 +112,7 @@ const NAV_ITEMS = [
 type TimePreset = "1m" | "5m" | "15m" | "30m" | "24h" | "7d" | "30d" | "today" | "custom";
 type RollingTimePreset = Exclude<TimePreset, "custom">;
 type BackendStatus = "healthy" | "unhealthy" | "unknown";
+const SUMMARY_WS_MIN_PUSH_MS = 3000;
 
 function isRollingTimePreset(preset: TimePreset): preset is RollingTimePreset {
   return preset !== "custom";
@@ -384,10 +385,7 @@ export default function DashboardPage() {
   const stableTimeRange = useStableTimeRange(timeRange);
   const isWsSummaryTab =
     activeTab === "overview" ||
-    activeTab === "domains" ||
-    activeTab === "countries" ||
-    activeTab === "proxies" ||
-    activeTab === "devices";
+    activeTab === "countries";
 
   const backendsQuery = useQuery({
     queryKey: ["backends"],
@@ -412,6 +410,7 @@ export default function DashboardPage() {
   const { status: wsStatus, lastMessage: wsSummary } = useStatsWebSocket({
     backendId: activeBackendId,
     range: stableTimeRange,
+    minPushIntervalMs: SUMMARY_WS_MIN_PUSH_MS,
     enabled: wsEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       if (!activeBackendId) return;

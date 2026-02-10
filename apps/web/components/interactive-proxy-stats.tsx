@@ -32,6 +32,7 @@ interface InteractiveProxyStatsProps {
   backendStatus?: "healthy" | "unhealthy" | "unknown";
   autoRefresh?: boolean;
 }
+const PROXY_DETAIL_WS_MIN_PUSH_MS = 3_000;
 
 function normalizeProxyName(name: string): string {
   const normalized = name
@@ -137,9 +138,11 @@ export function InteractiveProxyStats({
   const { status: wsDetailStatus } = useStatsWebSocket({
     backendId: activeBackendId,
     range: detailTimeRange,
+    minPushIntervalMs: PROXY_DETAIL_WS_MIN_PUSH_MS,
     includeProxyDetails: wsDetailEnabled,
     proxyChain: selectedProxy ?? undefined,
     proxyDetailLimit: 5000,
+    trackLastMessage: false,
     enabled: wsDetailEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       if (!selectedProxy) return;

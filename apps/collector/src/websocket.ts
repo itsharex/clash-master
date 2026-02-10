@@ -610,37 +610,81 @@ export class StatsWebSocketServer {
     }
 
     const includeRealtime = this.shouldIncludeRealtime(range);
+    const wantsFullSummary =
+      !trend &&
+      !deviceDetail &&
+      !proxyDetail &&
+      !ruleDetail &&
+      !includeRuleChainFlow &&
+      !domainsPage &&
+      !ipsPage;
 
-    const summary = this.db.getSummary(resolvedBackendId, range.start, range.end);
+    const summary = wantsFullSummary
+      ? this.db.getSummary(resolvedBackendId, range.start, range.end)
+      : {
+          totalUpload: 0,
+          totalDownload: 0,
+          totalConnections: 0,
+          uniqueDomains: 0,
+          uniqueIPs: 0,
+        };
 
-    const dbTopDomains = this.db.getTopDomains(resolvedBackendId, 100, range.start, range.end);
-    const topDomains = includeRealtime
-      ? realtimeStore.mergeTopDomains(resolvedBackendId, dbTopDomains, 100)
-      : dbTopDomains;
+    const dbTopDomains = wantsFullSummary
+      ? this.db.getTopDomains(resolvedBackendId, 100, range.start, range.end)
+      : undefined;
+    const topDomains = wantsFullSummary && dbTopDomains
+      ? includeRealtime
+        ? realtimeStore.mergeTopDomains(resolvedBackendId, dbTopDomains, 100)
+        : dbTopDomains
+      : [];
 
-    const dbTopIPs = this.db.getTopIPs(resolvedBackendId, 100, range.start, range.end);
-    const topIPs = includeRealtime
-      ? realtimeStore.mergeTopIPs(resolvedBackendId, dbTopIPs, 100)
-      : dbTopIPs;
+    const dbTopIPs = wantsFullSummary
+      ? this.db.getTopIPs(resolvedBackendId, 100, range.start, range.end)
+      : undefined;
+    const topIPs = wantsFullSummary && dbTopIPs
+      ? includeRealtime
+        ? realtimeStore.mergeTopIPs(resolvedBackendId, dbTopIPs, 100)
+        : dbTopIPs
+      : [];
 
-    const dbProxyStats = this.db.getProxyStats(resolvedBackendId, range.start, range.end);
-    const proxyStats = includeRealtime
-      ? realtimeStore.mergeProxyStats(resolvedBackendId, dbProxyStats)
-      : dbProxyStats;
-    const dbCountryStats = this.db.getCountryStats(resolvedBackendId, 50, range.start, range.end);
-    const countryStats = includeRealtime
-      ? realtimeStore.mergeCountryStats(resolvedBackendId, dbCountryStats)
-      : dbCountryStats;
-    const dbDeviceStats = this.db.getDevices(resolvedBackendId, 50, range.start, range.end);
-    const deviceStats = includeRealtime
-      ? realtimeStore.mergeDeviceStats(resolvedBackendId, dbDeviceStats, 50)
-      : dbDeviceStats;
+    const dbProxyStats = wantsFullSummary
+      ? this.db.getProxyStats(resolvedBackendId, range.start, range.end)
+      : undefined;
+    const proxyStats = wantsFullSummary && dbProxyStats
+      ? includeRealtime
+        ? realtimeStore.mergeProxyStats(resolvedBackendId, dbProxyStats)
+        : dbProxyStats
+      : [];
 
-    const dbRuleStats = this.db.getRuleStats(resolvedBackendId, range.start, range.end);
-    const ruleStats = includeRealtime
-      ? realtimeStore.mergeRuleStats(resolvedBackendId, dbRuleStats)
-      : dbRuleStats;
-    const hourlyStats = this.db.getHourlyStats(resolvedBackendId, 24, range.start, range.end);
+    const dbCountryStats = wantsFullSummary
+      ? this.db.getCountryStats(resolvedBackendId, 50, range.start, range.end)
+      : undefined;
+    const countryStats = wantsFullSummary && dbCountryStats
+      ? includeRealtime
+        ? realtimeStore.mergeCountryStats(resolvedBackendId, dbCountryStats)
+        : dbCountryStats
+      : undefined;
+
+    const dbDeviceStats = wantsFullSummary
+      ? this.db.getDevices(resolvedBackendId, 50, range.start, range.end)
+      : undefined;
+    const deviceStats = wantsFullSummary && dbDeviceStats
+      ? includeRealtime
+        ? realtimeStore.mergeDeviceStats(resolvedBackendId, dbDeviceStats, 50)
+        : dbDeviceStats
+      : undefined;
+
+    const dbRuleStats = wantsFullSummary
+      ? this.db.getRuleStats(resolvedBackendId, range.start, range.end)
+      : undefined;
+    const ruleStats = wantsFullSummary && dbRuleStats
+      ? includeRealtime
+        ? realtimeStore.mergeRuleStats(resolvedBackendId, dbRuleStats)
+        : dbRuleStats
+      : undefined;
+    const hourlyStats = wantsFullSummary
+      ? this.db.getHourlyStats(resolvedBackendId, 24, range.start, range.end)
+      : [];
     const trendStats = trend
       ? this.db.getTrafficTrendAggregated(
           resolvedBackendId,
@@ -819,7 +863,7 @@ export class StatsWebSocketServer {
       totalDomains: summary.uniqueDomains,
       totalIPs: summary.uniqueIPs,
       totalProxies: proxyStats.length,
-      totalRules: ruleStats.length,
+      totalRules: ruleStats?.length,
       topDomains,
       topIPs,
       proxyStats,
@@ -844,7 +888,7 @@ export class StatsWebSocketServer {
       hourlyStats,
     };
 
-    return includeRealtime
+    return includeRealtime && wantsFullSummary
       ? realtimeStore.applySummaryDelta(resolvedBackendId, baseStats)
       : baseStats;
   }

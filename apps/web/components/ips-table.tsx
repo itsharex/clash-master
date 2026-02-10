@@ -59,6 +59,7 @@ type SortOrder = "asc" | "desc";
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DETAIL_QUERY_STALE_MS = 30_000;
+const IPS_WS_MIN_PUSH_MS = 3_000;
 
 // Color palette for IP icons - solid colors that work in both light/dark modes
 const IP_COLORS = [
@@ -101,12 +102,14 @@ export function IPsTable({ activeBackendId, timeRange, autoRefresh = true }: IPs
   const { status: wsPageStatus } = useStatsWebSocket({
     backendId: activeBackendId,
     range: stableTimeRange,
+    minPushIntervalMs: IPS_WS_MIN_PUSH_MS,
     includeIPsPage: wsPageEnabled,
     ipsPageOffset: pageOffset,
     ipsPageLimit: pageSize,
     ipsPageSortBy: sortKey,
     ipsPageSortOrder: sortOrder,
     ipsPageSearch: wsPageSearch,
+    trackLastMessage: false,
     enabled: wsPageEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       const query = stats.ipsPageQuery;
