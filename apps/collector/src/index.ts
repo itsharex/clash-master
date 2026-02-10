@@ -158,7 +158,7 @@ function startCollector(backend: BackendConfig) {
     geoService,
     () => {
       // Broadcast stats update via WebSocket when new data arrives
-      wsServer.broadcastStats();
+      wsServer.broadcastStats(backend.id);
     },
     backend.id // Pass backend ID for data isolation
   );

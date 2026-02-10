@@ -25,6 +25,7 @@ import { getDomainsQueryKey } from "@/lib/stats-query-keys";
 import type { DomainStats } from "@clashmaster/shared";
 
 interface TopDomainsChartProps {
+  data?: DomainStats[];
   activeBackendId?: number;
   timeRange?: TimeRange;
 }
@@ -71,7 +72,7 @@ function renderCustomBarLabel(props: any) {
   );
 }
 
-export function TopDomainsChart({ activeBackendId, timeRange }: TopDomainsChartProps) {
+export function TopDomainsChart({ data, activeBackendId, timeRange }: TopDomainsChartProps) {
   const t = useTranslations("domains");
   const commonT = useTranslations("stats");
   const [topN, setTopN] = useState<TopOption>(10);
@@ -102,12 +103,17 @@ export function TopDomainsChart({ activeBackendId, timeRange }: TopDomainsChartP
         start: stableTimeRange?.start,
         end: stableTimeRange?.end,
       }),
-    enabled: !!activeBackendId,
+    enabled: !data && !!activeBackendId,
     placeholderData: keepPreviousData,
   });
 
-  const domains = domainsQuery.data?.data ?? [];
-  const isLoading = domainsQuery.isLoading && !domainsQuery.data;
+  const domains = useMemo(() => {
+    const source = data ?? domainsQuery.data?.data ?? [];
+    return [...source]
+      .sort((a, b) => b.totalDownload - a.totalDownload)
+      .slice(0, topN);
+  }, [data, domainsQuery.data?.data, topN]);
+  const isLoading = !data && domainsQuery.isLoading && !domainsQuery.data;
 
   useEffect(() => {
     if (!containerRef.current) return;

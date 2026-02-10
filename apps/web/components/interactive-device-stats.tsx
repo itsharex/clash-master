@@ -17,16 +17,18 @@ import {
 } from "@/lib/stats-query-keys";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
 import { keepPreviousByIdentity } from "@/lib/query-placeholder";
+import { useStatsWebSocket } from "@/lib/websocket";
 import { Favicon } from "@/components/favicon";
 import { DomainStatsTable, IPStatsTable } from "@/components/stats-tables";
 import { COLORS } from "@/lib/stats-utils";
-import type { DeviceStats } from "@clashmaster/shared";
+import type { DeviceStats, DomainStats, IPStats, StatsSummary } from "@clashmaster/shared";
 
 interface InteractiveDeviceStatsProps {
   data: DeviceStats[];
   activeBackendId?: number;
   timeRange?: TimeRange;
   backendStatus?: "healthy" | "unhealthy" | "unknown";
+  autoRefresh?: boolean;
 }
 
 
@@ -45,6 +47,7 @@ export function InteractiveDeviceStats({
   activeBackendId,
   timeRange,
   backendStatus,
+  autoRefresh = true,
 }: InteractiveDeviceStatsProps) {
   const t = useTranslations("devices");
   const domainsT = useTranslations("domains");
@@ -54,6 +57,8 @@ export function InteractiveDeviceStats({
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("domains");
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
+  const [wsDeviceDomains, setWsDeviceDomains] = useState<DomainStats[] | null>(null);
+  const [wsDeviceIPs, setWsDeviceIPs] = useState<IPStats[] | null>(null);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 640px)");
@@ -92,6 +97,37 @@ export function InteractiveDeviceStats({
     }
   }, [chartData, selectedDevice]);
 
+  const wsDetailEnabled = autoRefresh && !!activeBackendId && !!selectedDevice;
+  const { status: wsDetailStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: detailTimeRange,
+    includeDeviceDetails: wsDetailEnabled,
+    deviceSourceIP: selectedDevice ?? undefined,
+    deviceDetailLimit: 5000,
+    enabled: wsDetailEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!selectedDevice) return;
+      if (stats.deviceDetailSourceIP !== selectedDevice) return;
+      if (stats.deviceDomains) {
+        setWsDeviceDomains(stats.deviceDomains);
+      }
+      if (stats.deviceIPs) {
+        setWsDeviceIPs(stats.deviceIPs);
+      }
+    }, [selectedDevice]),
+  });
+
+  useEffect(() => {
+    setWsDeviceDomains(null);
+    setWsDeviceIPs(null);
+  }, [selectedDevice, activeBackendId]);
+
+  const hasWsDeviceDetails =
+    wsDetailEnabled &&
+    wsDetailStatus === "connected" &&
+    wsDeviceDomains !== null &&
+    wsDeviceIPs !== null;
+
   const deviceDomainsQuery = useQuery({
     queryKey: getDeviceDomainsQueryKey(selectedDevice, activeBackendId, detailTimeRange),
     queryFn: () =>
@@ -100,7 +136,7 @@ export function InteractiveDeviceStats({
         activeBackendId,
         detailTimeRange,
       ),
-    enabled: !!activeBackendId && !!selectedDevice,
+    enabled: !!activeBackendId && !!selectedDevice && !hasWsDeviceDetails,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         sourceIP: selectedDevice ?? "",
@@ -116,7 +152,7 @@ export function InteractiveDeviceStats({
         activeBackendId,
         detailTimeRange,
       ),
-    enabled: !!activeBackendId && !!selectedDevice,
+    enabled: !!activeBackendId && !!selectedDevice && !hasWsDeviceDetails,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         sourceIP: selectedDevice ?? "",
@@ -124,9 +160,9 @@ export function InteractiveDeviceStats({
       }),
   });
 
-  const deviceDomains = deviceDomainsQuery.data ?? [];
-  const deviceIPs = deviceIPsQuery.data ?? [];
-  const loading = !!selectedDevice && !deviceDomainsQuery.data && !deviceIPsQuery.data;
+  const deviceDomains = hasWsDeviceDetails ? wsDeviceDomains ?? [] : deviceDomainsQuery.data ?? [];
+  const deviceIPs = hasWsDeviceDetails ? wsDeviceIPs ?? [] : deviceIPsQuery.data ?? [];
+  const loading = !!selectedDevice && !hasWsDeviceDetails && !deviceDomainsQuery.data && !deviceIPsQuery.data;
 
   const handleDeviceClick = useCallback((rawName: string) => {
     if (selectedDevice !== rawName) {

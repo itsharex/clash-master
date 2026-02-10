@@ -426,6 +426,7 @@ export function createCollector(
               {
                 domain,
                 ip,
+                sourceIP,
                 chains,
                 rule,
                 rulePayload,
@@ -497,6 +498,7 @@ export function createCollector(
               {
                 domain: existing.domain,
                 ip: existing.ip,
+                sourceIP: existing.sourceIP,
                 chains: existing.chains,
                 rule: existing.rule || 'Match',
                 rulePayload: existing.rulePayload || '',

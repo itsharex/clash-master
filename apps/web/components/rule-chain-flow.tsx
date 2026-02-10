@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -33,8 +33,10 @@ import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { api, type TimeRange } from "@/lib/api";
+import { useStatsWebSocket } from "@/lib/websocket";
 import { resolveActiveChains, type ActiveChainInfo } from "@/lib/active-chain";
 import { useTranslations } from "next-intl";
+import type { StatsSummary } from "@clashmaster/shared";
 
 // ---------- Types ----------
 
@@ -60,6 +62,7 @@ interface UnifiedRuleChainFlowProps {
   selectedRule: string | null;
   activeBackendId?: number;
   timeRange?: TimeRange;
+  autoRefresh?: boolean;
 }
 
 // ---------- Layout constants ----------
@@ -361,6 +364,84 @@ function areChainFlowDataEqual(a: AllChainFlowData, b: AllChainFlowData): boolea
   return areRulePathsEqual(a.rulePaths, b.rulePaths);
 }
 
+function sortStringArray(values: string[]): string[] {
+  return [...values].sort((a, b) => a.localeCompare(b));
+}
+
+function nodeTypeRank(type: MergedChainNode["nodeType"]): number {
+  if (type === "rule") return 0;
+  if (type === "group") return 1;
+  return 2;
+}
+
+// Normalize node/link ordering to keep index mapping stable across pushes.
+// This avoids unnecessary full re-layout when backend output order changes.
+function normalizeChainFlowData(input: AllChainFlowData): AllChainFlowData {
+  const indexedNodes = input.nodes.map((node, index) => ({ node, index }));
+  indexedNodes.sort((a, b) => {
+    if (a.node.layer !== b.node.layer) return a.node.layer - b.node.layer;
+    const typeDiff = nodeTypeRank(a.node.nodeType) - nodeTypeRank(b.node.nodeType);
+    if (typeDiff !== 0) return typeDiff;
+    return a.node.name.localeCompare(b.node.name);
+  });
+
+  const oldNodeIndexToNew = new Map<number, number>();
+  const nodes: MergedChainNode[] = indexedNodes.map((item, nextIndex) => {
+    oldNodeIndexToNew.set(item.index, nextIndex);
+    return {
+      ...item.node,
+      rules: sortStringArray(item.node.rules),
+      _zeroTraffic: !!item.node._zeroTraffic,
+    };
+  });
+
+  const indexedLinks = input.links.map((link, index) => {
+    const source = oldNodeIndexToNew.get(link.source);
+    const target = oldNodeIndexToNew.get(link.target);
+    if (source === undefined || target === undefined) {
+      return null;
+    }
+    return {
+      index,
+      link: {
+        source,
+        target,
+        rules: sortStringArray(link.rules),
+      },
+    };
+  }).filter((item): item is { index: number; link: { source: number; target: number; rules: string[] } } => !!item);
+
+  indexedLinks.sort((a, b) => {
+    if (a.link.source !== b.link.source) return a.link.source - b.link.source;
+    if (a.link.target !== b.link.target) return a.link.target - b.link.target;
+    const aRules = a.link.rules.join("|");
+    const bRules = b.link.rules.join("|");
+    return aRules.localeCompare(bRules);
+  });
+
+  const oldLinkIndexToNew = new Map<number, number>();
+  const links = indexedLinks.map((item, nextIndex) => {
+    oldLinkIndexToNew.set(item.index, nextIndex);
+    return item.link;
+  });
+
+  const rulePaths: Record<string, { nodeIndices: number[]; linkIndices: number[] }> = {};
+  const ruleNames = Object.keys(input.rulePaths).sort((a, b) => a.localeCompare(b));
+  for (const ruleName of ruleNames) {
+    const path = input.rulePaths[ruleName];
+    const nodeIndices = path.nodeIndices
+      .map((oldIndex) => oldNodeIndexToNew.get(oldIndex))
+      .filter((value): value is number => value !== undefined);
+    const linkIndices = path.linkIndices
+      .map((oldIndex) => oldLinkIndexToNew.get(oldIndex))
+      .filter((value): value is number => value !== undefined);
+    rulePaths[ruleName] = { nodeIndices, linkIndices };
+  }
+
+  const maxLayer = nodes.reduce((max, node) => Math.max(max, node.layer), 0);
+  return { nodes, links, rulePaths, maxLayer };
+}
+
 // ---------- Inner renderer (needs ReactFlowProvider context) ----------
 
 function FlowRenderer({
@@ -419,23 +500,42 @@ function FlowRenderer({
 
     // For data-only updates: update node data in-place without re-layout or fitView
     if (isDataOnlyUpdate) {
-      setNodes((prev) =>
-        prev.map((node) => {
+      const activeNodeSet = activeIndices
+        ? new Set(activeIndices.nodeIndices)
+        : null;
+      setNodes((prev) => {
+        let changed = false;
+        const next = prev.map((node) => {
           const idx = Number(node.id);
           const freshNode = data.nodes[idx];
           if (!freshNode) return node;
-          const activeNodeSet = activeIndices
-            ? new Set(activeIndices.nodeIndices)
-            : null;
+          const dimmed = activeNodeSet ? !activeNodeSet.has(idx) : false;
+          const prevData = node.data as unknown as (MergedChainNode & { dimmed?: boolean });
+          if (
+            prevData.name === freshNode.name &&
+            prevData.layer === freshNode.layer &&
+            prevData.nodeType === freshNode.nodeType &&
+            prevData.totalUpload === freshNode.totalUpload &&
+            prevData.totalDownload === freshNode.totalDownload &&
+            prevData.totalConnections === freshNode.totalConnections &&
+            prevData._zeroTraffic === !!freshNode._zeroTraffic &&
+            prevData.dimmed === dimmed &&
+            areStringArraysEqual(prevData.rules, freshNode.rules)
+          ) {
+            return node;
+          }
+          changed = true;
           return {
             ...node,
             data: {
               ...freshNode,
-              dimmed: activeNodeSet ? !activeNodeSet.has(idx) : false,
+              dimmed,
+              _zeroTraffic: !!freshNode._zeroTraffic,
             },
           };
-        }),
-      );
+        });
+        return changed ? next : prev;
+      });
       return;
     }
 
@@ -667,12 +767,15 @@ function FlowRenderer({
   );
 }
 
+const MemoizedFlowRenderer = memo(FlowRenderer);
+
 // ---------- Main component ----------
 
-export function UnifiedRuleChainFlow({
+function UnifiedRuleChainFlowInner({
   selectedRule,
   activeBackendId,
   timeRange,
+  autoRefresh = true,
 }: UnifiedRuleChainFlowProps) {
   const t = useTranslations("rules");
   const [data, setData] = useState<AllChainFlowData | null>(null);
@@ -688,6 +791,33 @@ export function UnifiedRuleChainFlow({
   const prevBackendRef = useRef<number | undefined>(undefined);
   const flowContainerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const commitChainFlowData = useCallback((next: AllChainFlowData) => {
+    const normalized = normalizeChainFlowData(next);
+    setData((prev) => {
+      if (prev && areChainFlowDataEqual(prev, normalized)) {
+        return prev;
+      }
+      return normalized;
+    });
+    hasLoadedRef.current = true;
+    prevBackendRef.current = activeBackendId;
+    setError(null);
+    setLoading(false);
+  }, [activeBackendId]);
+
+  const wsEnabled = autoRefresh && !!activeBackendId;
+  const { status: wsStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: timeRange,
+    includeRuleChainFlow: wsEnabled,
+    enabled: wsEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!stats.ruleChainFlowAll) return;
+      commitChainFlowData(stats.ruleChainFlowAll);
+    }, [commitChainFlowData]),
+  });
+
+  const useHttpFallback = !wsEnabled || wsStatus !== "connected";
 
   const toggleFullscreen = useCallback(async () => {
     if (typeof document === "undefined") return;
@@ -745,9 +875,12 @@ export function UnifiedRuleChainFlow({
     };
   }, []);
 
-  // Fetch on backend/time-range changes. Parent already drives 5s updates
-  // for rolling windows, so avoid an additional local polling loop.
+  // HTTP fallback only when websocket is disabled or not connected.
   useEffect(() => {
+    if (!useHttpFallback) {
+      return;
+    }
+
     let cancelled = false;
     const requestId = ++requestIdRef.current;
     const backendChanged = prevBackendRef.current !== activeBackendId;
@@ -761,14 +894,7 @@ export function UnifiedRuleChainFlow({
       try {
         const result = await api.getAllRuleChainFlows(activeBackendId, timeRange);
         if (cancelled || requestId !== requestIdRef.current) return;
-        setData((prev) => {
-          if (prev && areChainFlowDataEqual(prev, result)) {
-            return prev;
-          }
-          return result;
-        });
-        hasLoadedRef.current = true;
-        prevBackendRef.current = activeBackendId;
+        commitChainFlowData(result);
       } catch (err) {
         if (cancelled || requestId !== requestIdRef.current) return;
         console.error("Failed to load chain flows:", err);
@@ -787,7 +913,18 @@ export function UnifiedRuleChainFlow({
     return () => {
       cancelled = true;
     };
-  }, [activeBackendId, timeRange]);
+  }, [activeBackendId, timeRange, useHttpFallback, commitChainFlowData]);
+
+  useEffect(() => {
+    if (!wsEnabled) {
+      return;
+    }
+    const backendChanged = prevBackendRef.current !== activeBackendId;
+    if (backendChanged) {
+      setLoading(true);
+      setError(null);
+    }
+  }, [activeBackendId, wsEnabled]);
 
   // Fetch active chain info when activePolicyOnly is ON
   useEffect(() => {
@@ -811,12 +948,17 @@ export function UnifiedRuleChainFlow({
     }
 
     fetchActiveChains();
-    const interval = setInterval(fetchActiveChains, 10000);
+    if (!autoRefresh) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const interval = setInterval(fetchActiveChains, 60000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [activePolicyOnly, activeBackendId]);
+  }, [activePolicyOnly, activeBackendId, autoRefresh]);
 
   // When user selects a different rule, auto-disable showAll
   useEffect(() => {
@@ -958,7 +1100,6 @@ export function UnifiedRuleChainFlow({
     };
   }, [data, activePolicyOnly, activeChainInfo]);
 
-  // Use filteredData for rendering
   const renderData = filteredData;
 
   // Container height: compact for focused mode, taller for show-all
@@ -1076,7 +1217,7 @@ export function UnifiedRuleChainFlow({
             </div>
           )}
           <ReactFlowProvider>
-            <FlowRenderer
+            <MemoizedFlowRenderer
               data={renderData}
               selectedRule={showAll ? null : selectedRule}
               showAll={showAll}
@@ -1089,6 +1230,16 @@ export function UnifiedRuleChainFlow({
     </Card>
   );
 }
+
+export const UnifiedRuleChainFlow = memo(
+  UnifiedRuleChainFlowInner,
+  (prev, next) =>
+    prev.selectedRule === next.selectedRule &&
+    prev.activeBackendId === next.activeBackendId &&
+    prev.autoRefresh === next.autoRefresh &&
+    prev.timeRange?.start === next.timeRange?.start &&
+    prev.timeRange?.end === next.timeRange?.end,
+);
 
 // Backward-compatible alias
 export { UnifiedRuleChainFlow as RuleChainFlow };

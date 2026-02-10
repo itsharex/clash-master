@@ -167,11 +167,14 @@ export class APIServer {
         ? realtimeStore.mergeProxyStats(backendId, dbProxyStats)
         : dbProxyStats;
 
-      const ruleStats = this.db.getRuleStats(
+      const dbRuleStats = this.db.getRuleStats(
         backendId,
         timeRange.start,
         timeRange.end,
       );
+      const ruleStats = includeRealtime
+        ? realtimeStore.mergeRuleStats(backendId, dbRuleStats)
+        : dbRuleStats;
       const hourlyStats = this.db.getHourlyStats(
         backendId,
         24,
@@ -236,15 +239,27 @@ export class APIServer {
         sortOrder?: string;
         search?: string;
       };
-      return this.db.getDomainStatsPaginated(backendId, {
-        offset: offset ? parseInt(offset) || 0 : 0,
-        limit: limit ? parseInt(limit) || 50 : 50,
+      const parsedOffset = offset ? parseInt(offset) || 0 : 0;
+      const parsedLimit = limit ? parseInt(limit) || 50 : 50;
+      const stats = this.db.getDomainStatsPaginated(backendId, {
+        offset: parsedOffset,
+        limit: parsedLimit,
         sortBy,
         sortOrder,
         search,
         start: timeRange.start,
         end: timeRange.end,
       });
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeDomainStatsPaginated(backendId, stats, {
+          offset: parsedOffset,
+          limit: parsedLimit,
+          sortBy,
+          sortOrder,
+          search,
+        });
+      }
+      return stats;
     });
 
     // Get IP statistics for a specific backend (paginated)
@@ -267,15 +282,27 @@ export class APIServer {
         sortOrder?: string;
         search?: string;
       };
-      return this.db.getIPStatsPaginated(backendId, {
-        offset: offset ? parseInt(offset) || 0 : 0,
-        limit: limit ? parseInt(limit) || 50 : 50,
+      const parsedOffset = offset ? parseInt(offset) || 0 : 0;
+      const parsedLimit = limit ? parseInt(limit) || 50 : 50;
+      const stats = this.db.getIPStatsPaginated(backendId, {
+        offset: parsedOffset,
+        limit: parsedLimit,
         sortBy,
         sortOrder,
         search,
         start: timeRange.start,
         end: timeRange.end,
       });
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeIPStatsPaginated(backendId, stats, {
+          offset: parsedOffset,
+          limit: parsedLimit,
+          sortBy,
+          sortOrder,
+          search,
+        });
+      }
+      return stats;
     });
 
     // Get per-proxy traffic breakdown for a specific domain
@@ -429,13 +456,17 @@ export class APIServer {
       }
       const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getProxyDomains(
+      const stats = this.db.getProxyDomains(
         backendId,
         chain,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeProxyDomains(backendId, chain, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     // Get IPs for a specific proxy/chain
@@ -457,13 +488,17 @@ export class APIServer {
       }
       const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getProxyIPs(
+      const stats = this.db.getProxyIPs(
         backendId,
         chain,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeProxyIPs(backendId, chain, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     // Get proxy/chain statistics for a specific backend
@@ -499,7 +534,11 @@ export class APIServer {
         return reply.status(404).send({ error: 'No backend specified or active' });
       }
 
-      return this.db.getRuleStats(backendId, timeRange.start, timeRange.end);
+      const stats = this.db.getRuleStats(backendId, timeRange.start, timeRange.end);
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeRuleStats(backendId, stats);
+      }
+      return stats;
     });
 
     // Get domains for a specific rule
@@ -521,13 +560,17 @@ export class APIServer {
       }
       const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getRuleDomains(
+      const stats = this.db.getRuleDomains(
         backendId,
         rule,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeRuleDomains(backendId, rule, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     // Get IPs for a specific rule
@@ -549,13 +592,17 @@ export class APIServer {
       }
       const effectiveLimit = parseLimit(limit, 5000, 20000);
 
-      return this.db.getRuleIPs(
+      const stats = this.db.getRuleIPs(
         backendId,
         rule,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeRuleIPs(backendId, rule, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     // Get per-proxy traffic breakdown for a specific domain under a specific rule
@@ -763,7 +810,17 @@ export class APIServer {
         return;
       }
       const { limit } = request.query as { limit?: string };
-      return this.db.getDevices(backendId, parseInt(limit || '50'), timeRange.start, timeRange.end);
+      const effectiveLimit = parseLimit(limit, 50, 2000);
+      const stats = this.db.getDevices(
+        backendId,
+        effectiveLimit,
+        timeRange.start,
+        timeRange.end,
+      );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeDeviceStats(backendId, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     app.get('/api/stats/devices/domains', async (request, reply) => {
@@ -778,13 +835,17 @@ export class APIServer {
       const { sourceIP, limit } = request.query as { sourceIP: string; limit?: string };
       if (!sourceIP) return [];
       const effectiveLimit = parseLimit(limit, 5000, 20000);
-      return this.db.getDeviceDomains(
+      const stats = this.db.getDeviceDomains(
         backendId,
         sourceIP,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeDeviceDomains(backendId, sourceIP, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     app.get('/api/stats/devices/ips', async (request, reply) => {
@@ -799,13 +860,17 @@ export class APIServer {
       const { sourceIP, limit } = request.query as { sourceIP: string; limit?: string };
       if (!sourceIP) return [];
       const effectiveLimit = parseLimit(limit, 5000, 20000);
-      return this.db.getDeviceIPs(
+      const stats = this.db.getDeviceIPs(
         backendId,
         sourceIP,
         effectiveLimit,
         timeRange.start,
         timeRange.end,
       );
+      if (shouldIncludeRealtime(timeRange)) {
+        return realtimeStore.mergeDeviceIPs(backendId, sourceIP, stats, effectiveLimit);
+      }
+      return stats;
     });
 
     // Get hourly statistics for a specific backend

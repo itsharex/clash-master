@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Search,
   ArrowUpDown,
@@ -26,9 +26,10 @@ import { cn } from "@/lib/utils";
 import { IPExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
-import type { IPStats } from "@clashmaster/shared";
+import type { IPStats, StatsSummary } from "@clashmaster/shared";
 import { api, type TimeRange } from "@/lib/api";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { useStatsWebSocket } from "@/lib/websocket";
 import {
   getIPDomainDetailsQueryKey,
   getIPProxyStatsQueryKey,
@@ -44,6 +45,7 @@ import {
 interface IPsTableProps {
   activeBackendId?: number;
   timeRange?: TimeRange;
+  autoRefresh?: boolean;
 }
 
 type SortKey =
@@ -56,6 +58,7 @@ type SortOrder = "asc" | "desc";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const DETAIL_QUERY_STALE_MS = 30_000;
 
 // Color palette for IP icons - solid colors that work in both light/dark modes
 const IP_COLORS = [
@@ -78,7 +81,7 @@ const getIPColor = (ip: string) => {
   return IP_COLORS[Math.abs(hash) % IP_COLORS.length];
 };
 
-export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
+export function IPsTable({ activeBackendId, timeRange, autoRefresh = true }: IPsTableProps) {
   const t = useTranslations("ips");
   const stableTimeRange = useStableTimeRange(timeRange);
   const detailTimeRange = stableTimeRange;
@@ -89,7 +92,46 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(10);
   const [expandedIP, setExpandedIP] = useState<string | null>(null);
+  const [wsIPsPage, setWsIPsPage] = useState<{ data: IPStats[]; total: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageOffset = (currentPage - 1) * pageSize;
+  const wsPageSearch = debouncedSearch || undefined;
+
+  const wsPageEnabled = autoRefresh && !!activeBackendId;
+  const { status: wsPageStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: stableTimeRange,
+    includeIPsPage: wsPageEnabled,
+    ipsPageOffset: pageOffset,
+    ipsPageLimit: pageSize,
+    ipsPageSortBy: sortKey,
+    ipsPageSortOrder: sortOrder,
+    ipsPageSearch: wsPageSearch,
+    enabled: wsPageEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      const query = stats.ipsPageQuery;
+      const page = stats.ipsPage;
+      if (!page || !query) return;
+      if (query.offset !== pageOffset || query.limit !== pageSize) return;
+      if ((query.sortBy || "totalDownload") !== sortKey) return;
+      if ((query.sortOrder || "desc") !== sortOrder) return;
+      if ((query.search || undefined) !== wsPageSearch) return;
+      setWsIPsPage(page);
+    }, [pageOffset, pageSize, sortKey, sortOrder, wsPageSearch]),
+  });
+
+  useEffect(() => {
+    setWsIPsPage(null);
+  }, [
+    activeBackendId,
+    stableTimeRange?.start,
+    stableTimeRange?.end,
+    pageOffset,
+    pageSize,
+    sortKey,
+    sortOrder,
+    wsPageSearch,
+  ]);
 
   // Debounce search input
   useEffect(() => {
@@ -124,13 +166,16 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
         start: stableTimeRange?.start,
         end: stableTimeRange?.end,
       }),
-    enabled: !!activeBackendId,
+    enabled: !!activeBackendId && wsPageStatus !== "connected",
     placeholderData: keepPreviousData,
   });
 
-  const data = ipsQuery.data?.data ?? [];
-  const total = ipsQuery.data?.total ?? 0;
-  const loading = ipsQuery.isLoading && !ipsQuery.data;
+  const hasWsIPsPage = wsPageEnabled && wsPageStatus === "connected" && wsIPsPage !== null;
+  const data = hasWsIPsPage ? wsIPsPage.data : ipsQuery.data?.data ?? [];
+  const total = hasWsIPsPage ? wsIPsPage.total : ipsQuery.data?.total ?? 0;
+  const loading =
+    (wsPageStatus === "connected" && wsIPsPage === null) ||
+    (!hasWsIPsPage && ipsQuery.isLoading && !ipsQuery.data);
 
   useEffect(() => {
     // Backend switch means a different data universe, collapse safely.
@@ -141,6 +186,7 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
     queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, detailTimeRange),
     queryFn: () => api.getIPProxyStats(expandedIP!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) => {
       const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
         | { ip?: string; backendId?: number | null }
@@ -156,6 +202,7 @@ export function IPsTable({ activeBackendId, timeRange }: IPsTableProps) {
     queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, detailTimeRange),
     queryFn: () => api.getIPDomainDetails(expandedIP!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) => {
       const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
         | { ip?: string; backendId?: number | null }

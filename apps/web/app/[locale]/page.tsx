@@ -76,8 +76,15 @@ import {
   getSummaryQueryKey,
 } from "@/lib/stats-query-keys";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { useStatsWebSocket } from "@/lib/websocket";
 import { cn } from "@/lib/utils";
-import type { StatsSummary, CountryStats, DeviceStats } from "@clashmaster/shared";
+import type {
+  StatsSummary,
+  CountryStats,
+  DeviceStats,
+  ProxyStats,
+  RuleStats,
+} from "@clashmaster/shared";
 
 function formatTimeAgo(date: Date, t: any): string {
   const now = new Date();
@@ -116,6 +123,7 @@ const OverviewContent = memo(function OverviewContent({
   error,
   timeRange,
   timePreset,
+  autoRefresh,
   activeBackendId,
   onNavigate,
   backendStatus,
@@ -125,6 +133,7 @@ const OverviewContent = memo(function OverviewContent({
   error: string | null;
   timeRange: TimeRange;
   timePreset: TimePreset;
+  autoRefresh: boolean;
   activeBackendId?: number;
   onNavigate?: (tab: string) => void;
   backendStatus: BackendStatus;
@@ -138,6 +147,7 @@ const OverviewContent = memo(function OverviewContent({
         countries={countryData}
         timeRange={timeRange}
         timePreset={timePreset}
+        autoRefresh={autoRefresh}
         activeBackendId={activeBackendId}
         onNavigate={onNavigate}
         backendStatus={backendStatus}
@@ -150,25 +160,39 @@ const DomainsContent = memo(function DomainsContent({
   data,
   activeBackendId,
   timeRange,
+  autoRefresh,
 }: {
   data: StatsSummary | null;
   activeBackendId?: number;
   timeRange: TimeRange;
+  autoRefresh: boolean;
 }) {
   const t = useTranslations("domains");
   return (
     <div className="space-y-6">
-      <TopDomainsChart activeBackendId={activeBackendId} timeRange={timeRange} />
+      <TopDomainsChart
+        data={data?.topDomains}
+        activeBackendId={activeBackendId}
+        timeRange={timeRange}
+      />
       <Tabs defaultValue="domains" className="w-full">
         <TabsList className="glass">
           <TabsTrigger value="domains">{t("domainList")}</TabsTrigger>
           <TabsTrigger value="ips">{t("ipList")}</TabsTrigger>
         </TabsList>
         <TabsContent value="domains" className="overflow-hidden">
-          <DomainsTable activeBackendId={activeBackendId} timeRange={timeRange} />
+          <DomainsTable
+            activeBackendId={activeBackendId}
+            timeRange={timeRange}
+            autoRefresh={autoRefresh}
+          />
         </TabsContent>
         <TabsContent value="ips" className="overflow-hidden">
-          <IPsTable activeBackendId={activeBackendId} timeRange={timeRange} />
+          <IPsTable
+            activeBackendId={activeBackendId}
+            timeRange={timeRange}
+            autoRefresh={autoRefresh}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -199,65 +223,81 @@ const CountriesContent = memo(function CountriesContent({
 });
 
 const ProxiesContent = memo(function ProxiesContent({
+  data,
   activeBackendId,
   timeRange,
   backendStatus,
+  autoRefresh,
 }: {
+  data?: ProxyStats[];
   activeBackendId?: number;
   timeRange: TimeRange;
   backendStatus: BackendStatus;
+  autoRefresh: boolean;
 }) {
   return (
     <div className="space-y-6">
       <InteractiveProxyStats
+        data={data}
         activeBackendId={activeBackendId}
         timeRange={timeRange}
         backendStatus={backendStatus}
+        autoRefresh={autoRefresh}
       />
     </div>
   );
 });
 
 const RulesContent = memo(function RulesContent({
+  data,
   activeBackendId,
   timeRange,
   backendStatus,
+  autoRefresh,
 }: {
+  data?: RuleStats[];
   activeBackendId?: number;
   timeRange: TimeRange;
   backendStatus: BackendStatus;
+  autoRefresh: boolean;
 }) {
   return (
     <div className="space-y-6">
       <InteractiveRuleStats
+        data={data}
         activeBackendId={activeBackendId}
         timeRange={timeRange}
         backendStatus={backendStatus}
+        autoRefresh={autoRefresh}
       />
     </div>
   );
 });
 
 const DevicesContent = memo(function DevicesContent({
+  data,
   activeBackendId,
   timeRange,
   backendStatus,
+  autoRefresh,
 }: {
+  data?: DeviceStats[];
   activeBackendId?: number;
   timeRange: TimeRange;
   backendStatus: BackendStatus;
+  autoRefresh: boolean;
 }) {
   const stableTimeRange = useStableTimeRange(timeRange);
 
   const devicesQuery = useQuery({
     queryKey: getDevicesQueryKey(activeBackendId, 50, stableTimeRange),
     queryFn: () => api.getDevices(activeBackendId, 50, stableTimeRange),
-    enabled: !!activeBackendId,
+    enabled: !data && !!activeBackendId,
     placeholderData: keepPreviousData,
   });
 
-  const deviceStats: DeviceStats[] = devicesQuery.data ?? [];
-  const loading = devicesQuery.isLoading && !devicesQuery.data;
+  const deviceStats: DeviceStats[] = data ?? devicesQuery.data ?? [];
+  const loading = !data && devicesQuery.isLoading && !devicesQuery.data;
 
   if (loading) {
     return (
@@ -274,6 +314,7 @@ const DevicesContent = memo(function DevicesContent({
         activeBackendId={activeBackendId}
         timeRange={timeRange}
         backendStatus={backendStatus}
+        autoRefresh={autoRefresh}
       />
     </div>
   );
@@ -311,6 +352,13 @@ export default function DashboardPage() {
   const [showAboutDialog, setShowAboutDialog] = useState(false);
 
   const stableTimeRange = useStableTimeRange(timeRange);
+  const isWsSummaryTab =
+    activeTab === "overview" ||
+    activeTab === "domains" ||
+    activeTab === "countries" ||
+    activeTab === "proxies" ||
+    activeTab === "rules" ||
+    activeTab === "devices";
 
   const backendsQuery = useQuery({
     queryKey: ["backends"],
@@ -330,24 +378,64 @@ export default function DashboardPage() {
   );
   const activeBackendId = activeBackend?.id;
 
+  // Use WebSocket for summary-driven tabs; keep detail-heavy tabs on HTTP.
+  const wsEnabled = autoRefresh && isWsSummaryTab && !!activeBackendId;
+  const { status: wsStatus, lastMessage: wsSummary } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: stableTimeRange,
+    enabled: wsEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!activeBackendId) return;
+      setAutoRefreshTick((tick) => tick + 1);
+      queryClient.setQueryData(
+        getSummaryQueryKey(activeBackendId, stableTimeRange),
+        (previous) => ({
+          ...(typeof previous === "object" && previous ? previous : {}),
+          ...stats,
+        }),
+      );
+      if (stats.countryStats) {
+        queryClient.setQueryData(
+          getCountriesQueryKey(activeBackendId, 50, stableTimeRange),
+          stats.countryStats,
+        );
+      }
+      if (stats.deviceStats) {
+        queryClient.setQueryData(
+          getDevicesQueryKey(activeBackendId, 50, stableTimeRange),
+          stats.deviceStats,
+        );
+      }
+    }, [activeBackendId, queryClient, stableTimeRange]),
+  });
+  const wsConnected = wsStatus === "connected";
+  const wsRealtimeActive = wsEnabled && wsConnected;
+  const shouldReducePolling = wsRealtimeActive;
+  const hasWsCountries =
+    wsRealtimeActive &&
+    !!wsSummary?.countryStats &&
+    (activeTab === "overview" || activeTab === "countries");
+
   const needsCountries = activeTab === "overview" || activeTab === "countries";
 
   const summaryQuery = useQuery({
     queryKey: getSummaryQueryKey(activeBackendId, stableTimeRange),
     queryFn: () => api.getSummary(activeBackendId, stableTimeRange),
-    enabled: !!activeBackendId,
+    enabled: !!activeBackendId && !(wsEnabled && wsConnected),
     placeholderData: keepPreviousData,
   });
 
   const countriesQuery = useQuery({
     queryKey: getCountriesQueryKey(activeBackendId, 50, stableTimeRange),
     queryFn: () => api.getCountries(activeBackendId, 50, stableTimeRange),
-    enabled: !!activeBackendId && needsCountries,
+    enabled: !!activeBackendId && needsCountries && !hasWsCountries,
     placeholderData: keepPreviousData,
   });
 
-  const data: StatsSummary | null = summaryQuery.data ?? null;
-  const countryData: CountryStats[] = countriesQuery.data ?? [];
+  const data: StatsSummary | null =
+    (wsEnabled && wsConnected && wsSummary) || summaryQuery.data || null;
+  const countryData: CountryStats[] =
+    (hasWsCountries ? wsSummary?.countryStats : countriesQuery.data) ?? [];
   const isLoading = isManualRefreshing;
 
   const summaryError = useMemo(() => {
@@ -356,6 +444,7 @@ export default function DashboardPage() {
       ? summaryQuery.error.message
       : "Unknown error";
   }, [summaryQuery.error]);
+  const effectiveSummaryError = wsEnabled && wsConnected ? null : summaryError;
 
   const countriesError = useMemo(() => {
     if (!countriesQuery.error) return null;
@@ -363,21 +452,22 @@ export default function DashboardPage() {
       ? countriesQuery.error.message
       : "Unknown error";
   }, [countriesQuery.error]);
+  const effectiveCountriesError = hasWsCountries ? null : countriesError;
 
-  const queryError = summaryError ?? countriesError;
+  const queryError = effectiveSummaryError ?? effectiveCountriesError;
 
   const backendStatus: BackendStatus = useMemo(() => {
     if (!activeBackend) return "unknown";
-    if (summaryError) return "unhealthy";
+    if (effectiveSummaryError) return "unhealthy";
     if (activeBackend.listening) return "healthy";
     return "unhealthy";
-  }, [activeBackend, summaryError]);
+  }, [activeBackend, effectiveSummaryError]);
 
   const backendStatusHint = useMemo(() => {
-    if (summaryError) return summaryError;
+    if (effectiveSummaryError) return effectiveSummaryError;
     if (activeBackend && !activeBackend.listening) return dashboardT("backendUnavailableHint");
     return null;
-  }, [summaryError, activeBackend, dashboardT]);
+  }, [effectiveSummaryError, activeBackend, dashboardT]);
 
   const refreshNow = useCallback(
     async (showLoading = false) => {
@@ -440,26 +530,28 @@ export default function DashboardPage() {
     }
   }, [backends.length, backendsQuery.isError, backendsQuery.isFetching, backendsQuery.isLoading, isFirstTime]);
 
-  // Keep rolling windows fresh by moving the range every 5s.
+  // Rolling presets: keep the time window moving.
+  // Only reduce to 30s on lightweight WS tabs (overview/countries).
   useEffect(() => {
     if (!autoRefresh || !isRollingTimePreset(timePreset)) return;
+    const intervalMs = shouldReducePolling ? 30000 : 5000;
     const interval = setInterval(() => {
       setAutoRefreshTick((tick) => tick + 1);
       setTimeRange(getPresetTimeRange(timePreset));
-      queryClient.removeQueries({ queryKey: ["stats"], type: "inactive" });
-    }, 5000);
+    }, intervalMs);
     return () => clearInterval(interval);
-  }, [autoRefresh, timePreset]);
+  }, [autoRefresh, shouldReducePolling, timePreset]);
 
-  // For fixed windows, keep polling active stats queries.
+  // Fixed presets: keep HTTP polling only when WS realtime is not active.
   useEffect(() => {
-    if (!autoRefresh || isRollingTimePreset(timePreset)) return;
+    if (!autoRefresh || isRollingTimePreset(timePreset) || wsRealtimeActive) return;
+    const intervalMs = 5000;
     const interval = setInterval(() => {
       setAutoRefreshTick((tick) => tick + 1);
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-    }, 5000);
+    }, intervalMs);
     return () => clearInterval(interval);
-  }, [autoRefresh, timePreset]);
+  }, [autoRefresh, queryClient, wsRealtimeActive, timePreset]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -471,37 +563,51 @@ export default function DashboardPage() {
             error={queryError}
             timeRange={timeRange}
             timePreset={timePreset}
+            autoRefresh={autoRefresh}
             activeBackendId={activeBackendId}
             onNavigate={setActiveTab}
             backendStatus={backendStatus}
           />
         );
       case "domains":
-        return <DomainsContent data={data} activeBackendId={activeBackendId} timeRange={timeRange} />;
+        return (
+          <DomainsContent
+            data={data}
+            activeBackendId={activeBackendId}
+            timeRange={timeRange}
+            autoRefresh={autoRefresh}
+          />
+        );
       case "countries":
         return <CountriesContent countryData={countryData} />;
       case "proxies":
         return (
           <ProxiesContent
+            data={data?.proxyStats}
             activeBackendId={activeBackendId}
             timeRange={timeRange}
             backendStatus={backendStatus}
+            autoRefresh={autoRefresh}
           />
         );
       case "rules":
         return (
           <RulesContent
+            data={data?.ruleStats}
             activeBackendId={activeBackendId}
             timeRange={timeRange}
             backendStatus={backendStatus}
+            autoRefresh={autoRefresh}
           />
         );
       case "devices":
         return (
           <DevicesContent
+            data={data?.deviceStats}
             activeBackendId={activeBackendId}
             timeRange={timeRange}
             backendStatus={backendStatus}
+            autoRefresh={autoRefresh}
           />
         );
       case "network":
@@ -514,6 +620,7 @@ export default function DashboardPage() {
             error={queryError}
             timeRange={timeRange}
             timePreset={timePreset}
+            autoRefresh={autoRefresh}
             activeBackendId={activeBackendId}
             onNavigate={setActiveTab}
             backendStatus={backendStatus}
@@ -646,12 +753,18 @@ export default function DashboardPage() {
                         aria-label={autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}
                         className={cn(
                           "h-9 w-9 rounded-full transition-colors",
-                          autoRefresh
+                          autoRefresh && (!wsEnabled || wsConnected)
                             ? "text-emerald-600 hover:bg-emerald-500/10"
-                            : "text-muted-foreground hover:bg-muted",
+                            : autoRefresh && wsEnabled && !wsConnected
+                              ? "text-amber-600 hover:bg-amber-500/10"
+                              : "text-muted-foreground hover:bg-muted",
                         )}>
                         <RefreshCw
-                          className={cn("w-4 h-4", autoRefresh && "text-emerald-500")}
+                          className={cn(
+                            "w-4 h-4",
+                            autoRefresh && (!wsEnabled || wsConnected) && "text-emerald-500",
+                            autoRefresh && wsEnabled && !wsConnected && "text-amber-500",
+                          )}
                           style={
                             autoRefresh
                               ? {

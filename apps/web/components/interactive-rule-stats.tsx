@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { api, type ClashRulesResponse, type TimeRange } from "@/lib/api";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
 import { keepPreviousByIdentity } from "@/lib/query-placeholder";
+import { useStatsWebSocket } from "@/lib/websocket";
 import {
   getRuleDomainsQueryKey,
   getRuleIPsQueryKey,
@@ -37,13 +38,14 @@ import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { DomainExpandedDetails, IPExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
 import { UnifiedRuleChainFlow } from "@/components/rule-chain-flow";
-import type { RuleStats, DomainStats, IPStats } from "@clashmaster/shared";
+import type { RuleStats, DomainStats, IPStats, StatsSummary } from "@clashmaster/shared";
 
 interface InteractiveRuleStatsProps {
   data?: RuleStats[];
   activeBackendId?: number;
   timeRange?: TimeRange;
   backendStatus?: "healthy" | "unhealthy" | "unknown";
+  autoRefresh?: boolean;
 }
 
 const COLORS = [
@@ -58,6 +60,30 @@ const CHART_COLORS = [
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 type PageSize = typeof PAGE_SIZE_OPTIONS[number];
+const DETAIL_QUERY_STALE_MS = 30_000;
+
+interface RuleChartItem {
+  name: string;
+  rawName: string;
+  value: number;
+  download: number;
+  upload: number;
+  connections: number;
+  finalProxy?: string;
+  color: string;
+  rank: number;
+  hasTraffic: boolean;
+}
+
+interface RuleDomainChartItem {
+  name: string;
+  fullDomain: string;
+  total: number;
+  download: number;
+  upload: number;
+  connections: number;
+  color: string;
+}
 
 // Domain sort keys
 type DomainSortKey = "domain" | "totalDownload" | "totalUpload" | "totalConnections";
@@ -109,6 +135,7 @@ export function InteractiveRuleStats({
   activeBackendId,
   timeRange,
   backendStatus,
+  autoRefresh = true,
 }: InteractiveRuleStatsProps) {
   const t = useTranslations("rules");
   const domainsT = useTranslations("domains");
@@ -138,6 +165,8 @@ export function InteractiveRuleStats({
   const [ipSearch, setIpSearch] = useState("");
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
   const [clashRules, setClashRules] = useState<ClashRulesResponse | null>(null);
+  const [wsRuleDomains, setWsRuleDomains] = useState<DomainStats[] | null>(null);
+  const [wsRuleIPs, setWsRuleIPs] = useState<IPStats[] | null>(null);
 
   // Sort states
   const [domainSortKey, setDomainSortKey] = useState<DomainSortKey>("totalDownload");
@@ -157,7 +186,8 @@ export function InteractiveRuleStats({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  // Fetch Clash rules to find zero-traffic rules
+  // Fetch Clash rules to find zero-traffic rules.
+  // Ruleset metadata changes infrequently, so load on mount/backend switch only.
   useEffect(() => {
     let cancelled = false;
     async function fetchClashRules() {
@@ -169,14 +199,13 @@ export function InteractiveRuleStats({
       }
     }
     fetchClashRules();
-    const interval = setInterval(fetchClashRules, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => { cancelled = true; };
   }, [activeBackendId]);
 
-  const chartData = useMemo(() => {
+  const chartData = useMemo<RuleChartItem[]>(() => {
     if (!rulesData) return [];
     const existingRuleNames = new Set(rulesData.map(r => r.rule));
-    const trafficItems = rulesData.map((rule, index) => ({
+    const trafficItems: RuleChartItem[] = rulesData.map((rule, index) => ({
       name: rule.rule,
       rawName: rule.rule,
       value: rule.totalDownload + rule.totalUpload,
@@ -265,6 +294,37 @@ export function InteractiveRuleStats({
     setExpandedIP(newExpanded);
   };
 
+  const wsDetailEnabled = autoRefresh && !!activeBackendId && !!selectedRule;
+  const { status: wsDetailStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: detailTimeRange,
+    includeRuleDetails: wsDetailEnabled,
+    ruleName: selectedRule ?? undefined,
+    ruleDetailLimit: 5000,
+    enabled: wsDetailEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!selectedRule) return;
+      if (stats.ruleDetailName !== selectedRule) return;
+      if (stats.ruleDomains) {
+        setWsRuleDomains(stats.ruleDomains);
+      }
+      if (stats.ruleIPs) {
+        setWsRuleIPs(stats.ruleIPs);
+      }
+    }, [selectedRule]),
+  });
+
+  useEffect(() => {
+    setWsRuleDomains(null);
+    setWsRuleIPs(null);
+  }, [selectedRule, activeBackendId]);
+
+  const hasWsRuleDetails =
+    wsDetailEnabled &&
+    wsDetailStatus === "connected" &&
+    wsRuleDomains !== null &&
+    wsRuleIPs !== null;
+
   const expandedDomainProxyQuery = useQuery({
     queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
       rule: selectedRule ?? undefined,
@@ -277,6 +337,7 @@ export function InteractiveRuleStats({
         detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         domain: expandedDomain ?? "",
@@ -297,6 +358,7 @@ export function InteractiveRuleStats({
         detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         domain: expandedDomain ?? "",
@@ -317,6 +379,7 @@ export function InteractiveRuleStats({
         detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         ip: expandedIP ?? "",
@@ -337,6 +400,7 @@ export function InteractiveRuleStats({
         detailTimeRange,
       ),
     enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         ip: expandedIP ?? "",
@@ -353,7 +417,7 @@ export function InteractiveRuleStats({
         activeBackendId,
         detailTimeRange,
       ),
-    enabled: !!activeBackendId && !!selectedRule,
+    enabled: !!activeBackendId && !!selectedRule && !hasWsRuleDetails,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         rule: selectedRule ?? "",
@@ -369,7 +433,7 @@ export function InteractiveRuleStats({
         activeBackendId,
         detailTimeRange,
       ),
-    enabled: !!activeBackendId && !!selectedRule,
+    enabled: !!activeBackendId && !!selectedRule && !hasWsRuleDetails,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         rule: selectedRule ?? "",
@@ -377,9 +441,9 @@ export function InteractiveRuleStats({
       }),
   });
 
-  const ruleDomains: DomainStats[] = ruleDomainsQuery.data ?? [];
-  const ruleIPs: IPStats[] = ruleIPsQuery.data ?? [];
-  const loading = !!selectedRule && !ruleDomainsQuery.data && !ruleIPsQuery.data;
+  const ruleDomains: DomainStats[] = hasWsRuleDetails ? wsRuleDomains ?? [] : ruleDomainsQuery.data ?? [];
+  const ruleIPs: IPStats[] = hasWsRuleDetails ? wsRuleIPs ?? [] : ruleIPsQuery.data ?? [];
+  const loading = !!selectedRule && !hasWsRuleDetails && !ruleDomainsQuery.data && !ruleIPsQuery.data;
 
   // Sort icon component
   const DomainSortIcon = ({ column }: { column: DomainSortKey }) => {
@@ -463,6 +527,10 @@ export function InteractiveRuleStats({
   }, [filteredDomains, domainPage, domainPageSize]);
 
   const domainTotalPages = Math.ceil(filteredDomains.length / domainPageSize);
+  const totalFilteredDomainTraffic = useMemo(
+    () => filteredDomains.reduce((sum, d) => sum + d.totalDownload + d.totalUpload, 0),
+    [filteredDomains],
+  );
 
   // Filter, sort and paginate IPs
   const filteredIPs = useMemo(() => {
@@ -491,9 +559,13 @@ export function InteractiveRuleStats({
   }, [filteredIPs, ipPage, ipPageSize]);
 
   const ipTotalPages = Math.ceil(filteredIPs.length / ipPageSize);
+  const totalFilteredIPTraffic = useMemo(
+    () => filteredIPs.reduce((sum, ip) => sum + ip.totalDownload + ip.totalUpload, 0),
+    [filteredIPs],
+  );
 
   // Chart data
-  const domainChartData = useMemo(() => {
+  const domainChartData = useMemo<RuleDomainChartItem[]>(() => {
     if (!ruleDomains?.length) return [];
     return ruleDomains
       .slice(0, 10)
@@ -871,6 +943,7 @@ export function InteractiveRuleStats({
         selectedRule={selectedRule}
         activeBackendId={activeBackendId}
         timeRange={timeRange}
+        autoRefresh={autoRefresh}
       />
 
       {/* Bottom Section: Domain List & IP Addresses with pagination */}
@@ -999,12 +1072,12 @@ export function InteractiveRuleStats({
                     {/* Domain List */}
                     <div className="divide-y divide-border/30">
                       {(() => {
-                        const totalDomainTraffic = filteredDomains.reduce(
-                          (sum, d) => sum + d.totalDownload + d.totalUpload, 0
-                        );
                         return paginatedDomains.map((domain, index) => {
                           const domainTraffic = domain.totalDownload + domain.totalUpload;
-                          const percent = totalDomainTraffic > 0 ? (domainTraffic / totalDomainTraffic) * 100 : 0;
+                          const percent =
+                            totalFilteredDomainTraffic > 0
+                              ? (domainTraffic / totalFilteredDomainTraffic) * 100
+                              : 0;
                           const isExpanded = expandedDomain === domain.domain;
                           
                           return (
@@ -1351,12 +1424,12 @@ export function InteractiveRuleStats({
                     {/* IP List */}
                     <div className="divide-y divide-border/30">
                       {(() => {
-                        const totalIPTraffic = filteredIPs.reduce(
-                          (sum, ip) => sum + ip.totalDownload + ip.totalUpload, 0
-                        );
                         return paginatedIPs.map((ip, index) => {
                           const ipTraffic = ip.totalDownload + ip.totalUpload;
-                          const percent = totalIPTraffic > 0 ? (ipTraffic / totalIPTraffic) * 100 : 0;
+                          const percent =
+                            totalFilteredIPTraffic > 0
+                              ? (ipTraffic / totalFilteredIPTraffic) * 100
+                              : 0;
                           const isExpanded = expandedIP === ip.ip;
                           const ipColor = getIPColor(ip.ip);
                           

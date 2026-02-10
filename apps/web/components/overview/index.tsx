@@ -6,8 +6,15 @@ import { TopDomainsSimple } from "./top-domains-simple";
 import { TopProxiesSimple } from "./top-proxies-simple";
 import { TopCountriesSimple } from "./top-countries-simple";
 import { TrafficTrendChart } from "@/components/traffic-trend-chart";
+import { useStatsWebSocket } from "@/lib/websocket";
 import { api, type TimeRange } from "@/lib/api";
-import type { DomainStats, ProxyStats, CountryStats, TrafficTrendPoint } from "@clashmaster/shared";
+import type {
+  DomainStats,
+  ProxyStats,
+  CountryStats,
+  TrafficTrendPoint,
+  StatsSummary,
+} from "@clashmaster/shared";
 
 type TrendTimeRange = "30m" | "1h" | "24h";
 type TrendGranularity = "minute" | "day";
@@ -29,6 +36,7 @@ interface OverviewTabProps {
   timeRange: TimeRange;
   timePreset: GlobalTimePreset;
   activeBackendId?: number;
+  autoRefresh?: boolean;
   onNavigate?: (tab: string) => void;
   backendStatus?: "healthy" | "unhealthy" | "unknown";
 }
@@ -104,6 +112,7 @@ export function OverviewTab({
   timeRange,
   timePreset,
   activeBackendId,
+  autoRefresh = true,
   onNavigate,
   backendStatus = "unknown",
 }: OverviewTabProps) {
@@ -191,6 +200,24 @@ export function OverviewTab({
       cacheKey: `${queryStart.toISOString()}-${queryEnd.toISOString()}-${bucketMinutes}`,
     };
   }, [parsedRange.end, parsedRange.start, canUseTrendSelector, trendTimeRange]);
+  const wsTrendEnabled = autoRefresh && !!activeBackendId && canUseTrendSelector && trendQuery.realtime;
+  const { status: wsTrendStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: { start: trendQuery.start, end: trendQuery.end },
+    includeTrend: wsTrendEnabled,
+    trendMinutes: trendQuery.minutes,
+    trendBucketMinutes: trendQuery.bucketMinutes,
+    enabled: wsTrendEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!stats.trendStats) return;
+      startTransition(() => {
+        setTrendData(stats.trendStats ?? []);
+        setTrendGranularity(trendQuery.granularity);
+      });
+      setTrendLoading(false);
+    }, [trendQuery.granularity]),
+  });
+  const wsTrendConnected = wsTrendStatus === "connected";
 
   // Load traffic trend data with caching
   const loadTrendData = useCallback(async (showLoading = false) => {
@@ -294,6 +321,15 @@ export function OverviewTab({
     loadTrendData(showLoading);
     initialLoadedRef.current = true;
   }, [activeBackendId, loadTrendData, trendQuery.realtime]);
+
+  // Periodic HTTP reconciliation while WS drives real-time updates.
+  useEffect(() => {
+    if (!wsTrendEnabled || !wsTrendConnected) return;
+    const interval = setInterval(() => {
+      loadTrendData(false);
+    }, 90000);
+    return () => clearInterval(interval);
+  }, [wsTrendEnabled, wsTrendConnected, loadTrendData]);
 
   // Handle time range change with transition
   const handleTimeRangeChange = (range: TrendTimeRange) => {

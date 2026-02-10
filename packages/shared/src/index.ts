@@ -140,6 +140,25 @@ export interface ProxyTrafficStats {
   totalConnections: number;
 }
 
+export interface RuleChainFlowAll {
+  nodes: Array<{
+    name: string;
+    layer: number;
+    nodeType: "rule" | "group" | "proxy";
+    totalUpload: number;
+    totalDownload: number;
+    totalConnections: number;
+    rules: string[];
+  }>;
+  links: Array<{
+    source: number;
+    target: number;
+    rules: string[];
+  }>;
+  rulePaths: Record<string, { nodeIndices: number[]; linkIndices: number[] }>;
+  maxLayer: number;
+}
+
 // API Response Types
 export interface StatsSummary {
   totalUpload: number;
@@ -155,6 +174,35 @@ export interface StatsSummary {
   topDomains: DomainStats[];
   topIPs: IPStats[];
   proxyStats: ProxyStats[];
+  countryStats?: CountryStats[];
+  deviceStats?: DeviceStats[];
+  deviceDetailSourceIP?: string;
+  deviceDomains?: DomainStats[];
+  deviceIPs?: IPStats[];
+  proxyDetailChain?: string;
+  proxyDomains?: DomainStats[];
+  proxyIPs?: IPStats[];
+  ruleDetailName?: string;
+  ruleDomains?: DomainStats[];
+  ruleIPs?: IPStats[];
+  ruleChainFlowAll?: RuleChainFlowAll;
+  domainsPage?: { data: DomainStats[]; total: number };
+  domainsPageQuery?: {
+    offset: number;
+    limit: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+    search?: string;
+  };
+  ipsPage?: { data: IPStats[]; total: number };
+  ipsPageQuery?: {
+    offset: number;
+    limit: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+    search?: string;
+  };
+  trendStats?: TrafficTrendPoint[];
   ruleStats?: RuleStats[];
   hourlyStats: HourlyStats[];
 }

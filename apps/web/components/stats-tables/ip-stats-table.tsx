@@ -47,6 +47,7 @@ import {
   type SortOrder,
 } from "@/lib/stats-utils";
 import type { IPStats } from "@clashmaster/shared";
+const DETAIL_QUERY_STALE_MS = 30_000;
 
 interface IPStatsTableProps {
   ips: IPStats[];
@@ -104,6 +105,7 @@ export function IPStatsTable({
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         ip: expandedIP ?? "",
@@ -128,6 +130,7 @@ export function IPStatsTable({
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         ip: expandedIP ?? "",

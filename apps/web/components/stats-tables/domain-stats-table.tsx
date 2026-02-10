@@ -45,6 +45,7 @@ import {
   type SortOrder,
 } from "@/lib/stats-utils";
 import type { DomainStats } from "@clashmaster/shared";
+const DETAIL_QUERY_STALE_MS = 30_000;
 
 interface DomainStatsTableProps {
   domains: DomainStats[];
@@ -102,6 +103,7 @@ export function DomainStatsTable({
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         domain: expandedDomain ?? "",
@@ -125,6 +127,7 @@ export function DomainStatsTable({
         sourceChain,
       ),
     enabled: richExpand && !!activeBackendId && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) =>
       keepPreviousByIdentity(previousData, previousQuery, {
         domain: expandedDomain ?? "",

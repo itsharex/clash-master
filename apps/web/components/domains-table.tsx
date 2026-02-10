@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Search, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Rows3, ChevronDown, ChevronUp, Server, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -12,9 +12,10 @@ import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
 import { formatBytes, formatNumber, formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import type { DomainStats } from "@clashmaster/shared";
+import type { DomainStats, StatsSummary } from "@clashmaster/shared";
 import { api, type TimeRange } from "@/lib/api";
 import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { useStatsWebSocket } from "@/lib/websocket";
 import {
   getDomainIPDetailsQueryKey,
   getDomainProxyStatsQueryKey,
@@ -30,6 +31,7 @@ import {
 interface DomainsTableProps {
   activeBackendId?: number;
   timeRange?: TimeRange;
+  autoRefresh?: boolean;
 }
 
 type SortKey = "domain" | "totalDownload" | "totalUpload" | "totalConnections" | "lastSeen";
@@ -37,8 +39,9 @@ type SortOrder = "asc" | "desc";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 type PageSize = typeof PAGE_SIZE_OPTIONS[number];
+const DETAIL_QUERY_STALE_MS = 30_000;
 
-export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) {
+export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }: DomainsTableProps) {
   const t = useTranslations("domains");
   const stableTimeRange = useStableTimeRange(timeRange);
   const detailTimeRange = stableTimeRange;
@@ -49,7 +52,46 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(10);
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
+  const [wsDomainsPage, setWsDomainsPage] = useState<{ data: DomainStats[]; total: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageOffset = (currentPage - 1) * pageSize;
+  const wsPageSearch = debouncedSearch || undefined;
+
+  const wsPageEnabled = autoRefresh && !!activeBackendId;
+  const { status: wsPageStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: stableTimeRange,
+    includeDomainsPage: wsPageEnabled,
+    domainsPageOffset: pageOffset,
+    domainsPageLimit: pageSize,
+    domainsPageSortBy: sortKey,
+    domainsPageSortOrder: sortOrder,
+    domainsPageSearch: wsPageSearch,
+    enabled: wsPageEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      const query = stats.domainsPageQuery;
+      const page = stats.domainsPage;
+      if (!page || !query) return;
+      if (query.offset !== pageOffset || query.limit !== pageSize) return;
+      if ((query.sortBy || "totalDownload") !== sortKey) return;
+      if ((query.sortOrder || "desc") !== sortOrder) return;
+      if ((query.search || undefined) !== wsPageSearch) return;
+      setWsDomainsPage(page);
+    }, [pageOffset, pageSize, sortKey, sortOrder, wsPageSearch]),
+  });
+
+  useEffect(() => {
+    setWsDomainsPage(null);
+  }, [
+    activeBackendId,
+    stableTimeRange?.start,
+    stableTimeRange?.end,
+    pageOffset,
+    pageSize,
+    sortKey,
+    sortOrder,
+    wsPageSearch,
+  ]);
 
   // Debounce search input
   useEffect(() => {
@@ -82,13 +124,16 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
         start: stableTimeRange?.start,
         end: stableTimeRange?.end,
       }),
-    enabled: !!activeBackendId,
+    enabled: !!activeBackendId && wsPageStatus !== "connected",
     placeholderData: keepPreviousData,
   });
 
-  const data = domainsQuery.data?.data ?? [];
-  const total = domainsQuery.data?.total ?? 0;
-  const loading = domainsQuery.isLoading && !domainsQuery.data;
+  const hasWsDomainsPage = wsPageEnabled && wsPageStatus === "connected" && wsDomainsPage !== null;
+  const data = hasWsDomainsPage ? wsDomainsPage.data : domainsQuery.data?.data ?? [];
+  const total = hasWsDomainsPage ? wsDomainsPage.total : domainsQuery.data?.total ?? 0;
+  const loading =
+    (wsPageStatus === "connected" && wsDomainsPage === null) ||
+    (!hasWsDomainsPage && domainsQuery.isLoading && !domainsQuery.data);
 
   useEffect(() => {
     // Backend switch means a different data universe, collapse safely.
@@ -99,6 +144,7 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
     queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange),
     queryFn: () => api.getDomainProxyStats(expandedDomain!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) => {
       const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
         | { domain?: string; backendId?: number | null }
@@ -114,6 +160,7 @@ export function DomainsTable({ activeBackendId, timeRange }: DomainsTableProps) 
     queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, detailTimeRange),
     queryFn: () => api.getDomainIPDetails(expandedDomain!, activeBackendId, detailTimeRange),
     enabled: !!activeBackendId && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
     placeholderData: (previousData, previousQuery) => {
       const prevKey = (previousQuery?.queryKey?.[2] ?? null) as
         | { domain?: string; backendId?: number | null }

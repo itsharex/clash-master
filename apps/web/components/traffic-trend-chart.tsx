@@ -199,28 +199,30 @@ export const TrafficTrendChart = React.memo(
               {t("title")}
             </CardTitle>
 
-            <div className={selectorSlotClassName}>
-              {showTimeRangeSelector ? (
-                <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5">
-                  {selectorOptions.map((option) => (
-                    <Button
-                      key={option.value}
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-7 px-3 text-xs rounded-md transition-all",
-                        timeRange === option.value
-                          ? "bg-background shadow-sm text-primary font-medium"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      onClick={() => onTimeRangeChange?.(option.value)}>
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              ) : (
-                <div aria-hidden className="h-7 w-[168px]" />
-              )}
+            <div className="flex items-center gap-2">
+              <div className={selectorSlotClassName}>
+                {showTimeRangeSelector ? (
+                  <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5">
+                    {selectorOptions.map((option) => (
+                      <Button
+                        key={option.value}
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          "h-7 px-3 text-xs rounded-md transition-all",
+                          timeRange === option.value
+                            ? "bg-background shadow-sm text-primary font-medium"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        onClick={() => onTimeRangeChange?.(option.value)}>
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <div aria-hidden className="h-7 w-[168px]" />
+                )}
+              </div>
             </div>
           </div>
 
