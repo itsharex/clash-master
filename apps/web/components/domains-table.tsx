@@ -40,6 +40,7 @@ type SortOrder = "asc" | "desc";
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 type PageSize = typeof PAGE_SIZE_OPTIONS[number];
 const DETAIL_QUERY_STALE_MS = 30_000;
+const DOMAINS_WS_MIN_PUSH_MS = 3_000;
 
 export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }: DomainsTableProps) {
   const t = useTranslations("domains");
@@ -61,12 +62,14 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
   const { status: wsPageStatus } = useStatsWebSocket({
     backendId: activeBackendId,
     range: stableTimeRange,
+    minPushIntervalMs: DOMAINS_WS_MIN_PUSH_MS,
     includeDomainsPage: wsPageEnabled,
     domainsPageOffset: pageOffset,
     domainsPageLimit: pageSize,
     domainsPageSortBy: sortKey,
     domainsPageSortOrder: sortOrder,
     domainsPageSearch: wsPageSearch,
+    trackLastMessage: false,
     enabled: wsPageEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       const query = stats.domainsPageQuery;

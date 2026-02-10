@@ -367,6 +367,10 @@ export function createCollector(
         data.connections.map((c) => c?.id).filter(Boolean),
       );
       let hasNewTraffic = false;
+      const geoBatchByIp = new Map<
+        string,
+        { upload: number; download: number; connections: number }
+      >();
 
       // Process all current connections
       for (const conn of data.connections) {
@@ -437,32 +441,17 @@ export function createCollector(
               now
             );
 
-            // Queue GeoIP lookup
+            // Aggregate GeoIP lookup payload by destination IP per batch.
             if (geoService && ip) {
-              geoService
-                .getGeoLocation(ip)
-                .then((geo) => {
-                  if (geo) {
-                    batchBuffer.addGeoResult({
-                      ip,
-                      geo,
-                      upload: conn.upload,
-                      download: conn.download,
-                      timestampMs: now,
-                    });
-                    realtimeStore.recordCountryTraffic(
-                      id,
-                      geo,
-                      conn.upload,
-                      conn.download,
-                      1,
-                      now,
-                    );
-                  }
-                })
-                .catch(() => {
-                  // Silently fail for GeoIP errors
-                });
+              const existingGeo = geoBatchByIp.get(ip) || {
+                upload: 0,
+                download: 0,
+                connections: 0,
+              };
+              existingGeo.upload += conn.upload;
+              existingGeo.download += conn.download;
+              existingGeo.connections += 1;
+              geoBatchByIp.set(ip, existingGeo);
             }
 
             hasNewTraffic = true;
@@ -509,32 +498,17 @@ export function createCollector(
               now
             );
 
-            // Queue GeoIP lookup for delta
+            // Aggregate GeoIP lookup payload by destination IP per batch.
             if (geoService && existing.ip) {
-              geoService
-                .getGeoLocation(existing.ip)
-                .then((geo) => {
-                  if (geo) {
-                    batchBuffer.addGeoResult({
-                      ip: existing.ip,
-                      geo,
-                      upload: uploadDelta,
-                      download: downloadDelta,
-                      timestampMs: now,
-                    });
-                    realtimeStore.recordCountryTraffic(
-                      id,
-                      geo,
-                      uploadDelta,
-                      downloadDelta,
-                      1,
-                      now,
-                    );
-                  }
-                })
-                .catch(() => {
-                  // Silently fail for GeoIP errors
-                });
+              const existingGeo = geoBatchByIp.get(existing.ip) || {
+                upload: 0,
+                download: 0,
+                connections: 0,
+              };
+              existingGeo.upload += uploadDelta;
+              existingGeo.download += downloadDelta;
+              existingGeo.connections += 1;
+              geoBatchByIp.set(existing.ip, existingGeo);
             }
 
             existing.lastUpload = conn.upload;
@@ -549,6 +523,35 @@ export function createCollector(
         if (!currentIds.has(connId)) {
           // Connection closed - any remaining traffic was already counted
           activeConnections.delete(connId);
+        }
+      }
+
+      if (geoService && geoBatchByIp.size > 0) {
+        for (const [ip, traffic] of geoBatchByIp) {
+          geoService
+            .getGeoLocation(ip)
+            .then((geo) => {
+              if (geo) {
+                batchBuffer.addGeoResult({
+                  ip,
+                  geo,
+                  upload: traffic.upload,
+                  download: traffic.download,
+                  timestampMs: now,
+                });
+                realtimeStore.recordCountryTraffic(
+                  id,
+                  geo,
+                  traffic.upload,
+                  traffic.download,
+                  traffic.connections,
+                  now,
+                );
+              }
+            })
+            .catch(() => {
+              // Silently fail for GeoIP errors
+            });
         }
       }
 

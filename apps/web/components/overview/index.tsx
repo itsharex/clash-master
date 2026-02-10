@@ -46,6 +46,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const REALTIME_END_TOLERANCE_MS = 2 * 60 * 1000;
 const TREND_CACHE_TTL_MS = 60 * 1000;
+const TREND_WS_MIN_PUSH_MS = 3_000;
 
 type TrendCacheEntry = {
   data: TrafficTrendPoint[];
@@ -204,9 +205,11 @@ export function OverviewTab({
   const { status: wsTrendStatus } = useStatsWebSocket({
     backendId: activeBackendId,
     range: { start: trendQuery.start, end: trendQuery.end },
+    minPushIntervalMs: TREND_WS_MIN_PUSH_MS,
     includeTrend: wsTrendEnabled,
     trendMinutes: trendQuery.minutes,
     trendBucketMinutes: trendQuery.bucketMinutes,
+    trackLastMessage: false,
     enabled: wsTrendEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       if (!stats.trendStats) return;

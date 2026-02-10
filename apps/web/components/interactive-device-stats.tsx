@@ -30,6 +30,7 @@ interface InteractiveDeviceStatsProps {
   backendStatus?: "healthy" | "unhealthy" | "unknown";
   autoRefresh?: boolean;
 }
+const DEVICE_DETAIL_WS_MIN_PUSH_MS = 3_000;
 
 
 
@@ -101,9 +102,11 @@ export function InteractiveDeviceStats({
   const { status: wsDetailStatus } = useStatsWebSocket({
     backendId: activeBackendId,
     range: detailTimeRange,
+    minPushIntervalMs: DEVICE_DETAIL_WS_MIN_PUSH_MS,
     includeDeviceDetails: wsDetailEnabled,
     deviceSourceIP: selectedDevice ?? undefined,
     deviceDetailLimit: 5000,
+    trackLastMessage: false,
     enabled: wsDetailEnabled,
     onMessage: useCallback((stats: StatsSummary) => {
       if (!selectedDevice) return;
