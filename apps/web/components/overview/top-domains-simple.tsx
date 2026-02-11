@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
 import { useSettings, getFaviconUrl } from "@/lib/settings";
-import type { DomainStats } from "@clashmaster/shared";
+import type { DomainStats } from "@neko-master/shared";
 
 interface TopDomainsSimpleProps {
   domains: DomainStats[];

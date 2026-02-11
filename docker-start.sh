@@ -12,7 +12,7 @@ DB_PATH="${DB_PATH:-/app/data/stats.db}"
 export API_PORT COLLECTOR_WS_PORT DB_PATH
 
 echo "╔════════════════════════════════════════════════════════╗"
-echo "║          Clash Master - Starting...                    ║"
+echo "║          Neko Master - Starting...                     ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo
 echo "📊 Web UI:     http://0.0.0.0:${WEB_PORT}"
@@ -91,7 +91,7 @@ echo "════════════════════════�
 echo "  ✅ All services started successfully!"
 echo
 echo "  📝 Access the dashboard at: http://<your-host>:${WEB_PORT}"
-echo "  🔧 Configure your OpenClash backend in the web UI"
+echo "  🔧 Configure your Gateway backend in the web UI"
 echo "════════════════════════════════════════════════════════"
 echo
 

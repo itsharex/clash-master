@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { Connection, DomainStats, IPStats, HourlyStats, DailyStats, ProxyStats, RuleStats, ProxyTrafficStats, DeviceStats } from '@clashmaster/shared';
+import type { Connection, DomainStats, IPStats, HourlyStats, DailyStats, ProxyStats, RuleStats, ProxyTrafficStats, DeviceStats } from '@neko-master/shared';
 // Retention config stored in database (doesn't include cleanupInterval)
 interface DatabaseRetentionConfig {
   connectionLogsDays: number;
@@ -396,7 +396,7 @@ export class StatsDatabase {
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_connection_logs_domain ON connection_logs(domain);`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_connection_logs_chain ON connection_logs(chain);`);
 
-    // Backend configurations - stores OpenClash backend connections
+    // Backend configurations - stores Gateway backend connections
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS backend_configs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1074,7 +1074,7 @@ export class StatsDatabase {
     for (const update of updates) {
       if (update.upload === 0 && update.download === 0) continue;
 
-      // Use the last element of chains as the rule name (friendly name from Clash config)
+      // Use the last element of chains as the rule name (friendly name from Gateway config)
       // e.g., "漏网之鱼", "微软服务", "TikTok"
       const ruleName = update.chains.length > 1 ? update.chains[update.chains.length - 1] : 
                        update.rulePayload ? `${update.rule}(${update.rulePayload})` : update.rule;

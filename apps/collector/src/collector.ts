@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import type { ConnectionsData } from "@clashmaster/shared";
+import type { ConnectionsData } from "@neko-master/shared";
 import { StatsDatabase } from "./db.js";
 import { GeoIPService } from "./geo-service.js";
 import { realtimeStore } from "./realtime.js";
@@ -42,7 +42,7 @@ function toMinuteKey(timestampMs?: number): string {
   return `${date.slice(0, 16)}:00`;
 }
 
-export class OpenClashCollector {
+export class GatewayCollector {
   private ws: WebSocket | null = null;
   private url: string;
   private token?: string;
@@ -339,7 +339,7 @@ export function createCollector(
     flushBatch();
   }, FLUSH_INTERVAL_MS);
 
-  const collector = new OpenClashCollector(id, {
+  const collector = new GatewayCollector(id, {
     url,
     token,
     onData: (data) => {

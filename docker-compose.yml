@@ -1,7 +1,7 @@
 services:
-  clash-master:
-    image: foru17/clash-master:latest
-    container_name: clash-master
+  neko-master:
+    image: foru17/neko-master:latest
+    container_name: neko-master
     restart: unless-stopped
     ports:
       # 外部端口 : 内部端口
@@ -22,7 +22,7 @@ services:
       - WS_EXTERNAL_PORT=${WS_EXTERNAL_PORT:-3002}
       - DB_PATH=/app/data/stats.db
     networks:
-      - clash-master-network
+      - neko-master-network
     # 健康检查
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:${API_PORT:-3001}/health || exit 1"]
@@ -32,5 +32,5 @@ services:
       start_period: 40s
 
 networks:
-  clash-master-network:
+  neko-master-network:
     driver: bridge

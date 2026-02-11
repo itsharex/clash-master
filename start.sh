@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Clash Master 启动脚本
+# Neko Master 启动脚本
 
 set -e
 
 echo "╔════════════════════════════════════════════════════════╗"
-echo "║     OpenClash Traffic Statistics System                ║"
+echo "║     Neko Master Traffic Statistics System              ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo
 
@@ -34,7 +34,7 @@ if [ ! -f "apps/collector/.env" ]; then
     echo -e "${YELLOW}Warning: .env file not found in apps/collector/${NC}"
     echo "Creating from template..."
     cp apps/collector/.env.example apps/collector/.env
-    echo -e "${YELLOW}Please edit apps/collector/.env with your OpenClash configuration${NC}"
+    echo -e "${YELLOW}Please edit apps/collector/.env with your Gateway configuration${NC}"
     exit 1
 fi
 

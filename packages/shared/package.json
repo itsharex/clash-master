@@ -1,5 +1,5 @@
 {
-  "name": "@clashmaster/shared",
+  "name": "@neko-master/shared",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",

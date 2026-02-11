@@ -7,7 +7,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { ServiceWorkerRegister } from "@/components/sw-register";
+import { ServiceWorkerRegister } from "@/components/common";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -21,19 +21,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clash Master",
-  description: "Modern and beautiful network traffic analysis dashboard",
+  title: "Neko Master",
+  description: "Modern Network Traffic Analytics",
   icons: {
-    icon: "/clash-master.png",
-    shortcut: "/clash-master.png",
+    icon: "/logo.png",
+    shortcut: "/logo.png",
     apple: "/icons/icon-192x192.png",
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Clash Master",
+    title: "Neko Master",
   },
-  applicationName: "Clash Master",
+  applicationName: "Neko Master",
 };
 
 export const viewport: Viewport = {
@@ -71,7 +71,7 @@ export default async function RootLayout({
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
-        <meta name="apple-mobile-web-app-title" content="Clash Master" />
+        <meta name="apple-mobile-web-app-title" content="Neko Master" />
         <script src="/runtime-config.js" />
       </head>
       <body

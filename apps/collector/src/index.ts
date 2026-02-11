@@ -2,12 +2,13 @@ import { config } from 'dotenv';
 config();
 
 import { StatsDatabase, BackendConfig } from './db.js';
-import { createCollector, OpenClashCollector } from './collector.js';
+import { createCollector, GatewayCollector } from './collector.js';
 import { StatsWebSocketServer } from './websocket.js';
+import { realtimeStore } from './realtime.js';
 
 let wsServer: StatsWebSocketServer;
 
-import { APIServer } from './api.js';
+import { APIServer } from './app.js';
 import { GeoIPService } from './geo-service.js';
 import path from 'path';
 
@@ -15,8 +16,8 @@ const COLLECTOR_WS_PORT = parseInt(process.env.COLLECTOR_WS_PORT || '3002');
 const API_PORT = parseInt(process.env.API_PORT || '3001');
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'stats.db');
 
-// Map of backend connections: backendId -> OpenClashCollector
-const collectors = new Map<number, OpenClashCollector>();
+// Map of backend connections: backendId -> GatewayCollector
+const collectors = new Map<number, GatewayCollector>();
 let db: StatsDatabase;
 
 let apiServer: APIServer;
@@ -42,7 +43,7 @@ async function main() {
 
   // Initialize API server
   console.log('[Main] Starting API server on port', API_PORT);
-  apiServer = new APIServer(API_PORT, db);
+  apiServer = new APIServer(API_PORT, db, realtimeStore);
   apiServer.start();
 
   // Start backend management loop

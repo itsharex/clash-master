@@ -1,5 +1,5 @@
 import { WebSocketServer as WSServer, WebSocket } from 'ws';
-import type { StatsSummary } from '@clashmaster/shared';
+import type { StatsSummary } from '@neko-master/shared';
 import type { StatsDatabase } from './db.js';
 import { realtimeStore } from './realtime.js';
 

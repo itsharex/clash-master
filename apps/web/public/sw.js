@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = "clash-master-v1";
+const CACHE_NAME = "neko-master-v1";
 
 // Assets to pre-cache on install
 const PRECACHE_ASSETS = ["/", "/manifest.webmanifest"];

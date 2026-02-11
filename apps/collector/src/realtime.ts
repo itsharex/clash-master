@@ -7,7 +7,7 @@ import type {
   RuleStats,
   StatsSummary,
   TrafficTrendPoint,
-} from '@clashmaster/shared';
+} from '@neko-master/shared';
 
 type SummaryDelta = {
   upload: number;

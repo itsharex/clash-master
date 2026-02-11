@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   faviconProvider: "faviconim",
 };
 
-const STORAGE_KEY = "clash-master-settings";
+const STORAGE_KEY = "neko-master-settings";
 
 // Cached settings for sync access
 let cachedSettings: UserSettings = DEFAULT_SETTINGS;

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Clash Master One-Click Setup Script
+# Neko Master One-Click Setup Script
 # Automatically detects port conflicts and provides solutions
 
 set -e
@@ -65,10 +65,10 @@ find_available_port() {
 show_welcome() {
     echo ""
     echo "╔════════════════════════════════════════════════════════╗"
-    echo "║          Clash Master - One-Click Setup                ║"
+    echo "║          Neko Master - One-Click Setup                 ║"
     echo "╚════════════════════════════════════════════════════════╝"
     echo ""
-    print_info "This script will help you quickly configure Clash Master"
+    print_info "This script will help you quickly configure Neko Master"
     echo ""
 }
 
@@ -158,7 +158,7 @@ create_env_file() {
     
     cat > .env << EOF
 # =============================================================================
-# Clash Master Environment Configuration
+# Neko Master Environment Configuration
 # =============================================================================
 # Generated at: $(date)
 
@@ -172,10 +172,10 @@ create_env_file() {
 WEB_EXTERNAL_PORT=$WEB_PORT
 
 # API port (default: 3001)
-API_EXTERNAL_PORT=$API_PORT
+# API_EXTERNAL_PORT=$API_PORT
 
 # WebSocket port (default: 3002)
-WS_EXTERNAL_PORT=$WS_PORT
+# WS_EXTERNAL_PORT=$WS_PORT
 
 # -----------------------------------------------------------------------------
 # Advanced Configuration (Usually don't need to change)
@@ -236,7 +236,7 @@ ask_start() {
     
     if [[ $start_now =~ ^[Yy]$ ]]; then
         echo ""
-        print_info "Starting Clash Master..."
+        print_info "Starting Neko Master..."
         echo ""
         
         if command -v docker-compose &> /dev/null; then
@@ -252,7 +252,7 @@ ask_start() {
         echo "  Then access: http://localhost:$WEB_PORT"
         echo ""
         echo "  Common commands:"
-        echo "    View logs:  docker logs -f clash-master"
+        echo "    View logs:  docker logs -f neko-master"
         echo "    Stop:       docker compose down"
         echo "    Restart:    docker compose restart"
         echo ""
@@ -269,9 +269,9 @@ download_compose_file() {
     if [ ! -f "docker-compose.yml" ]; then
         print_info "Downloading docker-compose.yml..."
         if command -v curl &> /dev/null; then
-            curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/foru17/clash-master/main/docker-compose.yml
+            curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/foru17/neko-master/main/docker-compose.yml
         elif command -v wget &> /dev/null; then
-            wget -qO docker-compose.yml https://raw.githubusercontent.com/foru17/clash-master/main/docker-compose.yml
+            wget -qO docker-compose.yml https://raw.githubusercontent.com/foru17/neko-master/main/docker-compose.yml
         else
             print_error "Neither curl nor wget is available"
             exit 1

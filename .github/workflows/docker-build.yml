@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_IMAGE: foru17/clash-master
+  DOCKERHUB_IMAGE_OLD: foru17/clash-master
+  DOCKERHUB_IMAGE_NEW: foru17/neko-master
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -67,7 +68,8 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: |
-          ${{ env.DOCKERHUB_IMAGE }}
+          ${{ env.DOCKERHUB_IMAGE_OLD }}
+          ${{ env.DOCKERHUB_IMAGE_NEW }}
           ${{ env.GHCR_IMAGE }}
         tags: |
           type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
@@ -98,6 +100,6 @@ jobs:
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
-        repository: foru17/clash-master
+        repository: foru17/neko-master
         readme-filepath: ./README.md
-        short-description: "Modern traffic analysis dashboard for Clash"
+        short-description: "Modern Network Traffic Analytics"

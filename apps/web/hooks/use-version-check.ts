@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 
 const GITHUB_PACKAGE_URL =
-  "https://raw.githubusercontent.com/foru17/clash-master/refs/heads/main/package.json";
+  "https://raw.githubusercontent.com/foru17/neko-master/refs/heads/main/package.json";
 const GITHUB_API_URL =
-  "https://api.github.com/repos/foru17/clash-master";
+  "https://api.github.com/repos/foru17/neko-master";
 const CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
 const FETCH_TIMEOUT = 10000; // 10 seconds
 

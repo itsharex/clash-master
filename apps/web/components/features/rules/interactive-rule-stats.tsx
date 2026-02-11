@@ -1,0 +1,1792 @@
+"use client";
+
+import { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
+import { Server, ChevronLeft, ChevronRight, BarChart3, Link2, Rows3, ArrowUpDown, ArrowDown, ArrowUp, Globe, Waypoints, ChevronDown, ChevronUp } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell as BarCell, LabelList } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { formatBytes, formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { api, type GatewayRulesResponse, type TimeRange } from "@/lib/api";
+import { useStableTimeRange } from "@/lib/hooks/use-stable-time-range";
+import { keepPreviousByIdentity } from "@/lib/query-placeholder";
+import { useStatsWebSocket } from "@/lib/websocket";
+import {
+  getRuleDomainsQueryKey,
+  getRuleIPsQueryKey,
+  getIPDomainDetailsQueryKey,
+  getIPProxyStatsQueryKey,
+  getDomainIPDetailsQueryKey,
+  getDomainProxyStatsQueryKey,
+  getRulesQueryKey,
+} from "@/lib/stats-query-keys";
+import { CountryFlag } from "@/components/features/countries/country-flag";
+import { Favicon } from "@/components/common/favicon";
+import { DomainPreview } from "@/components/features/domains/domain-preview";
+import { ProxyChainBadge } from "@/components/features/proxies/proxy-chain-badge";
+import { DomainExpandedDetails, IPExpandedDetails } from "@/components/features/stats/table/expanded-details";
+import { ExpandReveal } from "@/components/ui/expand-reveal";
+import { UnifiedRuleChainFlow } from "@/components/features/rules/rule-chain-flow";
+import { InsightChartSkeleton, InsightDetailSectionSkeleton, InsightTableSkeleton, InsightThreePanelSkeleton } from "@/components/ui/insight-skeleton";
+import type { RuleStats, DomainStats, IPStats, StatsSummary } from "@neko-master/shared";
+
+interface InteractiveRuleStatsProps {
+  data?: RuleStats[];
+  activeBackendId?: number;
+  timeRange?: TimeRange;
+  backendStatus?: "healthy" | "unhealthy" | "unknown";
+  autoRefresh?: boolean;
+}
+
+const COLORS = [
+  "#3B82F6", "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B",
+  "#EF4444", "#EC4899", "#6366F1", "#14B8A6", "#F97316",
+];
+
+const CHART_COLORS = [
+  "#3B82F6", "#8B5CF6", "#06B6D4", "#10B981", "#F59E0B",
+  "#EF4444", "#EC4899", "#6366F1", "#14B8A6", "#F97316",
+];
+
+const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+type PageSize = typeof PAGE_SIZE_OPTIONS[number];
+const DETAIL_QUERY_STALE_MS = 30_000;
+const RULE_DETAIL_WS_MERGE_MS = 5_000;
+const RULE_DETAIL_WS_MIN_PUSH_MS = 5_000;
+const EMPTY_DOMAINS: DomainStats[] = [];
+const EMPTY_IPS: IPStats[] = [];
+
+interface RuleChartItem {
+  name: string;
+  rawName: string;
+  value: number;
+  download: number;
+  upload: number;
+  connections: number;
+  finalProxy?: string;
+  color: string;
+  rank: number;
+  hasTraffic: boolean;
+}
+
+interface RuleDomainChartItem {
+  name: string;
+  fullDomain: string;
+  total: number;
+  download: number;
+  upload: number;
+  connections: number;
+  color: string;
+}
+
+// Domain sort keys
+type DomainSortKey = "domain" | "totalDownload" | "totalUpload" | "totalConnections";
+type SortOrder = "asc" | "desc";
+
+// IP sort keys
+type IPSortKey = "ip" | "totalDownload" | "totalUpload" | "totalConnections";
+
+// Color palette for icons
+const ICON_COLORS = [
+  { bg: "bg-blue-500", text: "text-white" },
+  { bg: "bg-violet-500", text: "text-white" },
+  { bg: "bg-emerald-500", text: "text-white" },
+  { bg: "bg-amber-500", text: "text-white" },
+  { bg: "bg-rose-500", text: "text-white" },
+  { bg: "bg-cyan-500", text: "text-white" },
+  { bg: "bg-indigo-500", text: "text-white" },
+  { bg: "bg-teal-500", text: "text-white" },
+];
+
+const getIPColor = (ip: string) => {
+  let hash = 0;
+  for (let i = 0; i < ip.length; i++) {
+    hash = ip.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return ICON_COLORS[Math.abs(hash) % ICON_COLORS.length];
+};
+
+// Custom label renderer for bar chart
+function renderCustomBarLabel(props: any) {
+  const { x, y, width, value, height } = props;
+  return (
+    <text
+      x={x + width + 6}
+      y={y + height / 2}
+      fill="currentColor"
+      fontSize={11}
+      dominantBaseline="central"
+      textAnchor="start"
+      style={{ fontVariantNumeric: "tabular-nums" }}
+    >
+      {formatBytes(value, 0)}
+    </text>
+  );
+}
+
+export function InteractiveRuleStats({
+  data,
+  activeBackendId,
+  timeRange,
+  backendStatus,
+  autoRefresh = true,
+}: InteractiveRuleStatsProps) {
+  const t = useTranslations("rules");
+  const domainsT = useTranslations("domains");
+  const ipsT = useTranslations("ips");
+  const backendT = useTranslations("dashboard");
+  const stableTimeRange = useStableTimeRange(timeRange, { roundToMinute: true });
+  const detailTimeRange = stableTimeRange;
+
+  const ruleListQuery = useQuery({
+    queryKey: getRulesQueryKey(activeBackendId, 50, stableTimeRange),
+    queryFn: () => api.getRules(activeBackendId, 50, stableTimeRange),
+    enabled: !data && !!activeBackendId,
+    placeholderData: keepPreviousData,
+  });
+  const rulesData = data ?? ruleListQuery.data ?? [];
+  const listLoading = !data && ruleListQuery.isLoading && !ruleListQuery.data;
+  
+  const [selectedRule, setSelectedRule] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("domains");
+  
+  // Pagination states
+  const [domainPage, setDomainPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState<PageSize>(10);
+  const [domainSearch, setDomainSearch] = useState("");
+  const [ipPage, setIpPage] = useState(1);
+  const [ipSearch, setIpSearch] = useState("");
+  const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
+  const [gatewayRules, setGatewayRules] = useState<GatewayRulesResponse | null>(null);
+  const [wsRuleDomains, setWsRuleDomains] = useState<DomainStats[] | null>(null);
+  const [wsRuleIPs, setWsRuleIPs] = useState<IPStats[] | null>(null);
+  const pendingRuleDomainsRef = useRef<DomainStats[] | null>(null);
+  const pendingRuleIPsRef = useRef<IPStats[] | null>(null);
+  const detailFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDetailFlushAtRef = useRef(0);
+
+  // Sort states
+  const [domainSortKey, setDomainSortKey] = useState<DomainSortKey>("totalDownload");
+  const [domainSortOrder, setDomainSortOrder] = useState<SortOrder>("desc");
+  const [ipSortKey, setIpSortKey] = useState<IPSortKey>("totalDownload");
+  const [ipSortOrder, setIpSortOrder] = useState<SortOrder>("desc");
+
+  // Expanded states
+  const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
+  const [expandedIP, setExpandedIP] = useState<string | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 640px)");
+    const update = () => setShowDomainBarLabels(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  // Fetch Gateway rules to find zero-traffic rules.
+  // Ruleset metadata changes infrequently, so load on mount/backend switch only.
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchGatewayRules() {
+      try {
+        const result = await api.getGatewayRules(activeBackendId);
+        if (!cancelled) setGatewayRules(result);
+      } catch {
+        // Silent - Gateway API may not be available
+      }
+    }
+    fetchGatewayRules();
+    return () => { cancelled = true; };
+  }, [activeBackendId]);
+
+  const chartData = useMemo<RuleChartItem[]>(() => {
+    if (!rulesData) return [];
+    const existingRuleNames = new Set(rulesData.map(r => r.rule));
+    const trafficItems: RuleChartItem[] = rulesData.map((rule, index) => ({
+      name: rule.rule,
+      rawName: rule.rule,
+      value: rule.totalDownload + rule.totalUpload,
+      download: rule.totalDownload,
+      upload: rule.totalUpload,
+      connections: rule.totalConnections,
+      finalProxy: rule.finalProxy,
+      color: COLORS[index % COLORS.length],
+      rank: index,
+      hasTraffic: true,
+    }));
+
+    // Append zero-traffic rules from Gateway API, using the target proxy group name
+    // (rule.proxy) which matches how traffic data stores rule names.
+    // Multiple low-level rules (RuleSet, ProcessName, etc.) can target the same
+    // proxy group, so we deduplicate by proxy group name.
+    if (gatewayRules?.rules) {
+      const zeroTrafficItems: typeof trafficItems = [];
+      for (const rule of gatewayRules.rules) {
+        const proxyGroup = rule.proxy;
+        if (existingRuleNames.has(proxyGroup)) continue;
+        existingRuleNames.add(proxyGroup);
+        zeroTrafficItems.push({
+          name: proxyGroup,
+          rawName: proxyGroup,
+          value: 0,
+          download: 0,
+          upload: 0,
+          connections: 0,
+          finalProxy: proxyGroup,
+          color: "#9CA3AF",
+          rank: trafficItems.length + zeroTrafficItems.length,
+          hasTraffic: false,
+        });
+      }
+      return [...trafficItems, ...zeroTrafficItems];
+    }
+
+    return trafficItems;
+  }, [rulesData, gatewayRules]);
+
+  const totalTraffic = useMemo(() => {
+    return chartData.reduce((sum, item) => sum + item.value, 0);
+  }, [chartData]);
+
+  const topRules = useMemo(
+    () => [...chartData].sort((a, b) => b.value - a.value).slice(0, 4),
+    [chartData]
+  );
+
+  const maxTotal = useMemo(() => {
+    if (!chartData.length) return 1;
+    return Math.max(...chartData.map(r => r.value));
+  }, [chartData]);
+
+  // Domain sort handler
+  const handleDomainSort = (key: DomainSortKey) => {
+    if (domainSortKey === key) {
+      setDomainSortOrder(domainSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setDomainSortKey(key);
+      setDomainSortOrder("desc");
+    }
+    setDomainPage(1);
+  };
+
+  // IP sort handler
+  const handleIPSort = (key: IPSortKey) => {
+    if (ipSortKey === key) {
+      setIpSortOrder(ipSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setIpSortKey(key);
+      setIpSortOrder("desc");
+    }
+    setIpPage(1);
+  };
+
+  // Toggle expand handlers
+  const toggleExpandDomain = (domain: string) => {
+    const newExpanded = expandedDomain === domain ? null : domain;
+    setExpandedDomain(newExpanded);
+  };
+
+  const toggleExpandIP = (ip: string) => {
+    const newExpanded = expandedIP === ip ? null : ip;
+    setExpandedIP(newExpanded);
+  };
+
+  const flushPendingRuleDetails = useCallback(() => {
+    detailFlushTimerRef.current = null;
+    const nextDomains = pendingRuleDomainsRef.current;
+    const nextIPs = pendingRuleIPsRef.current;
+    pendingRuleDomainsRef.current = null;
+    pendingRuleIPsRef.current = null;
+    if (nextDomains || nextIPs) {
+      startTransition(() => {
+        if (nextDomains) {
+          setWsRuleDomains(nextDomains);
+        }
+        if (nextIPs) {
+          setWsRuleIPs(nextIPs);
+        }
+      });
+    }
+    lastDetailFlushAtRef.current = Date.now();
+  }, []);
+
+  const enqueueRuleDetailUpdate = useCallback((
+    domains: DomainStats[] | undefined,
+    ips: IPStats[] | undefined,
+  ) => {
+    if (domains) {
+      pendingRuleDomainsRef.current = domains;
+    }
+    if (ips) {
+      pendingRuleIPsRef.current = ips;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastDetailFlushAtRef.current;
+    if (elapsed >= RULE_DETAIL_WS_MERGE_MS) {
+      flushPendingRuleDetails();
+      return;
+    }
+    if (detailFlushTimerRef.current) {
+      return;
+    }
+    detailFlushTimerRef.current = setTimeout(() => {
+      flushPendingRuleDetails();
+    }, RULE_DETAIL_WS_MERGE_MS - elapsed);
+  }, [flushPendingRuleDetails]);
+
+  const wsDetailEnabled = autoRefresh && !!activeBackendId && !!selectedRule;
+  const { status: wsDetailStatus } = useStatsWebSocket({
+    backendId: activeBackendId,
+    range: detailTimeRange,
+    minPushIntervalMs: RULE_DETAIL_WS_MIN_PUSH_MS,
+    includeRuleDetails: wsDetailEnabled,
+    ruleName: selectedRule ?? undefined,
+    ruleDetailLimit: 5000,
+    trackLastMessage: false,
+    enabled: wsDetailEnabled,
+    onMessage: useCallback((stats: StatsSummary) => {
+      if (!selectedRule) return;
+      if (stats.ruleDetailName !== selectedRule) return;
+      if (stats.ruleDomains || stats.ruleIPs) {
+        enqueueRuleDetailUpdate(stats.ruleDomains, stats.ruleIPs);
+      }
+    }, [enqueueRuleDetailUpdate, selectedRule]),
+  });
+
+  useEffect(() => {
+    setWsRuleDomains(null);
+    setWsRuleIPs(null);
+    pendingRuleDomainsRef.current = null;
+    pendingRuleIPsRef.current = null;
+    lastDetailFlushAtRef.current = 0;
+    if (detailFlushTimerRef.current) {
+      clearTimeout(detailFlushTimerRef.current);
+      detailFlushTimerRef.current = null;
+    }
+  }, [selectedRule, activeBackendId]);
+
+  useEffect(() => {
+    if (wsDetailEnabled) return;
+    pendingRuleDomainsRef.current = null;
+    pendingRuleIPsRef.current = null;
+    lastDetailFlushAtRef.current = 0;
+    if (detailFlushTimerRef.current) {
+      clearTimeout(detailFlushTimerRef.current);
+      detailFlushTimerRef.current = null;
+    }
+  }, [wsDetailEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (detailFlushTimerRef.current) {
+        clearTimeout(detailFlushTimerRef.current);
+      }
+    };
+  }, []);
+
+  const hasWsRuleDetails =
+    wsDetailEnabled &&
+    wsDetailStatus === "connected" &&
+    wsRuleDomains !== null &&
+    wsRuleIPs !== null;
+
+  const expandedDomainProxyQuery = useQuery({
+    queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
+      rule: selectedRule ?? undefined,
+    }),
+    queryFn: () =>
+      api.getRuleDomainProxyStats(
+        selectedRule!,
+        expandedDomain!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
+  });
+
+  const expandedDomainIPDetailsQuery = useQuery({
+    queryKey: getDomainIPDetailsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
+      rule: selectedRule ?? undefined,
+    }),
+    queryFn: () =>
+      api.getRuleDomainIPDetails(
+        selectedRule!,
+        expandedDomain!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !!expandedDomain,
+    staleTime: DETAIL_QUERY_STALE_MS,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        domain: expandedDomain ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
+  });
+
+  const expandedIPProxyQuery = useQuery({
+    queryKey: getIPProxyStatsQueryKey(expandedIP, activeBackendId, detailTimeRange, {
+      rule: selectedRule ?? undefined,
+    }),
+    queryFn: () =>
+      api.getRuleIPProxyStats(
+        selectedRule!,
+        expandedIP!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        ip: expandedIP ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
+  });
+
+  const expandedIPDomainDetailsQuery = useQuery({
+    queryKey: getIPDomainDetailsQueryKey(expandedIP, activeBackendId, detailTimeRange, {
+      rule: selectedRule ?? undefined,
+    }),
+    queryFn: () =>
+      api.getRuleIPDomainDetails(
+        selectedRule!,
+        expandedIP!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !!expandedIP,
+    staleTime: DETAIL_QUERY_STALE_MS,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        ip: expandedIP ?? "",
+        backendId: activeBackendId ?? null,
+        rule: selectedRule ?? "",
+      }),
+  });
+
+  const ruleDomainsQuery = useQuery({
+    queryKey: getRuleDomainsQueryKey(selectedRule, activeBackendId, detailTimeRange),
+    queryFn: () =>
+      api.getRuleDomains(
+        selectedRule!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !hasWsRuleDetails,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        rule: selectedRule ?? "",
+        backendId: activeBackendId ?? null,
+      }),
+  });
+
+  const ruleIPsQuery = useQuery({
+    queryKey: getRuleIPsQueryKey(selectedRule, activeBackendId, detailTimeRange),
+    queryFn: () =>
+      api.getRuleIPs(
+        selectedRule!,
+        activeBackendId,
+        detailTimeRange,
+      ),
+    enabled: !!activeBackendId && !!selectedRule && !hasWsRuleDetails,
+    placeholderData: (previousData, previousQuery) =>
+      keepPreviousByIdentity(previousData, previousQuery, {
+        rule: selectedRule ?? "",
+        backendId: activeBackendId ?? null,
+      }),
+  });
+
+  const ruleDomains: DomainStats[] = hasWsRuleDetails
+    ? wsRuleDomains ?? []
+    : ruleDomainsQuery.data ?? wsRuleDomains ?? [];
+  const ruleIPs: IPStats[] = hasWsRuleDetails
+    ? wsRuleIPs ?? []
+    : ruleIPsQuery.data ?? wsRuleIPs ?? [];
+  const hasDetailSnapshot =
+    hasWsRuleDetails ||
+    wsRuleDomains !== null ||
+    wsRuleIPs !== null ||
+    ruleDomainsQuery.data !== undefined ||
+    ruleIPsQuery.data !== undefined;
+  const loading = !!selectedRule && !hasDetailSnapshot;
+
+  // Sort icon component
+  const DomainSortIcon = ({ column }: { column: DomainSortKey }) => {
+    if (domainSortKey !== column) return <ArrowUpDown className="ml-1 h-3 w-3 text-muted-foreground" />;
+    return domainSortOrder === "asc" ? (
+      <ArrowUp className="ml-1 h-3 w-3 text-primary" />
+    ) : (
+      <ArrowDown className="ml-1 h-3 w-3 text-primary" />
+    );
+  };
+
+  const IPSortIcon = ({ column }: { column: IPSortKey }) => {
+    if (ipSortKey !== column) return <ArrowUpDown className="ml-1 h-3 w-3 text-muted-foreground" />;
+    return ipSortOrder === "asc" ? (
+      <ArrowUp className="ml-1 h-3 w-3 text-primary" />
+    ) : (
+      <ArrowDown className="ml-1 h-3 w-3 text-primary" />
+    );
+  };
+
+  // Default select first rule when data loads
+  useEffect(() => {
+    if (chartData.length === 0) {
+      setSelectedRule(null);
+      return;
+    }
+    const exists = !!selectedRule && chartData.some((item) => item.rawName === selectedRule);
+    if (!exists) {
+      setSelectedRule(chartData[0].rawName);
+    }
+  }, [chartData, selectedRule]);
+
+  useEffect(() => {
+    // Rule changed: reset table controls for a clean context.
+    setDomainPage(1);
+    setIpPage(1);
+    setDomainSearch("");
+    setIpSearch("");
+    setExpandedDomain(null);
+    setExpandedIP(null);
+  }, [selectedRule]);
+
+  useEffect(() => {
+    setExpandedDomain(null);
+    setExpandedIP(null);
+  }, [activeBackendId]);
+
+  const handleRuleClick = useCallback((rule: string) => {
+    if (selectedRule !== rule) {
+      setSelectedRule(rule);
+    }
+  }, [selectedRule]);
+
+  const selectedRuleData = useMemo(() => {
+    return chartData.find(r => r.rawName === selectedRule);
+  }, [chartData, selectedRule]);
+
+  const isDomainsTab = activeTab === "domains";
+  const isIPsTab = activeTab === "ips";
+
+  // Filter, sort and paginate domains
+  const filteredDomains = useMemo(() => {
+    if (!isDomainsTab) return EMPTY_DOMAINS;
+    let result = ruleDomains;
+    if (domainSearch) {
+      result = ruleDomains.filter(d => 
+        d.domain.toLowerCase().includes(domainSearch.toLowerCase())
+      );
+    }
+    // Sort
+    return [...result].sort((a, b) => {
+      const aValue = a[domainSortKey];
+      const bValue = b[domainSortKey];
+      const modifier = domainSortOrder === "asc" ? 1 : -1;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        return aValue.localeCompare(bValue) * modifier;
+      }
+      return ((aValue as number) - (bValue as number)) * modifier;
+    });
+  }, [isDomainsTab, ruleDomains, domainSearch, domainSortKey, domainSortOrder]);
+
+  const paginatedDomains = useMemo(() => {
+    if (!isDomainsTab) return EMPTY_DOMAINS;
+    const start = (domainPage - 1) * detailPageSize;
+    return filteredDomains.slice(start, start + detailPageSize);
+  }, [isDomainsTab, filteredDomains, domainPage, detailPageSize]);
+
+  const domainTotalPages = isDomainsTab
+    ? Math.max(1, Math.ceil(filteredDomains.length / detailPageSize))
+    : 1;
+  const totalFilteredDomainTraffic = useMemo(
+    () => (isDomainsTab
+      ? filteredDomains.reduce((sum, d) => sum + d.totalDownload + d.totalUpload, 0)
+      : 0),
+    [isDomainsTab, filteredDomains],
+  );
+
+  // Filter, sort and paginate IPs
+  const filteredIPs = useMemo(() => {
+    if (!isIPsTab) return EMPTY_IPS;
+    let result = ruleIPs;
+    if (ipSearch) {
+      result = ruleIPs.filter(ip => 
+        ip.ip.toLowerCase().includes(ipSearch.toLowerCase()) ||
+        ip.domains.some(d => d.toLowerCase().includes(ipSearch.toLowerCase()))
+      );
+    }
+    // Sort
+    return [...result].sort((a, b) => {
+      const aValue = a[ipSortKey];
+      const bValue = b[ipSortKey];
+      const modifier = ipSortOrder === "asc" ? 1 : -1;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        return aValue.localeCompare(bValue) * modifier;
+      }
+      return ((aValue as number) - (bValue as number)) * modifier;
+    });
+  }, [isIPsTab, ruleIPs, ipSearch, ipSortKey, ipSortOrder]);
+
+  const paginatedIPs = useMemo(() => {
+    if (!isIPsTab) return EMPTY_IPS;
+    const start = (ipPage - 1) * detailPageSize;
+    return filteredIPs.slice(start, start + detailPageSize);
+  }, [isIPsTab, filteredIPs, ipPage, detailPageSize]);
+
+  const ipTotalPages = isIPsTab
+    ? Math.max(1, Math.ceil(filteredIPs.length / detailPageSize))
+    : 1;
+  const totalFilteredIPTraffic = useMemo(
+    () => (isIPsTab
+      ? filteredIPs.reduce((sum, ip) => sum + ip.totalDownload + ip.totalUpload, 0)
+      : 0),
+    [isIPsTab, filteredIPs],
+  );
+
+  // Chart data
+  const domainChartData = useMemo<RuleDomainChartItem[]>(() => {
+    if (!ruleDomains?.length) return [];
+    return ruleDomains
+      .slice(0, 10)
+      .map((domain, index) => ({
+        name: domain.domain.length > 15 ? domain.domain.slice(0, 15) + "..." : domain.domain,
+        fullDomain: domain.domain,
+        total: domain.totalDownload + domain.totalUpload,
+        download: domain.totalDownload,
+        upload: domain.totalUpload,
+        connections: domain.totalConnections,
+        color: CHART_COLORS[index % CHART_COLORS.length],
+      }));
+  }, [ruleDomains]);
+
+  const isBackendUnavailable = backendStatus === "unhealthy";
+  const emptyHint = isBackendUnavailable
+    ? backendT("backendUnavailableHint")
+    : t("noDataHint");
+
+  const getPageNumbers = (currentPage: number, totalPages: number) => {
+    const pages: (number | string)[] = [];
+    const maxVisible = 5;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      }
+    }
+    return pages;
+  };
+
+  if (listLoading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-5 sm:p-6">
+            <InsightThreePanelSkeleton />
+          </CardContent>
+        </Card>
+        <InsightDetailSectionSkeleton />
+      </div>
+    );
+  }
+
+  if (chartData.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-5 sm:p-6">
+          <div className="min-h-[220px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-6 flex flex-col items-center justify-center text-center">
+            <Waypoints className="h-8 w-8 text-muted-foreground/70 mb-2" />
+            <p className="text-sm font-medium text-muted-foreground">{t("noData")}</p>
+            <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">{emptyHint}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Top Section: Three Column Layout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
+        {/* Left: Pie Chart (3 columns) */}
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              {t("distribution")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-2 pb-4">
+            <div className="h-[165px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    dataKey="value"
+                    isAnimationActive={false}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip 
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const item = payload[0].payload;
+                        return (
+                          <div className="bg-background border border-border p-3 rounded-lg shadow-lg">
+                            <p className="font-medium text-sm mb-1">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatBytes(item.value)}</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {topRules.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider text-center">
+                  Top 4
+                </p>
+                <div className="mt-1 space-y-1.5">
+                  {topRules.map((item, idx) => {
+                    const rankBadgeClass = idx === 0
+                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                      : idx === 1
+                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      : idx === 2
+                      ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                      : "bg-muted text-muted-foreground";
+
+                    return (
+                    <div
+                      key={item.rawName}
+                      title={item.name}
+                      className="flex items-center gap-1.5 min-w-0"
+                    >
+                      <span
+                        className={cn(
+                          "w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0",
+                          rankBadgeClass
+                        )}
+                      >
+                        {idx + 1}
+                      </span>
+                      <span
+                        className="px-1.5 py-0.5 rounded-md text-[10px] font-medium text-white/90 truncate min-w-0"
+                        style={{ backgroundColor: item.color }}
+                      >
+                        {item.name}
+                      </span>
+                    </div>
+                  );
+                  })}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Middle: Rule List (4 columns) */}
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              {t("ruleList")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3">
+            <ScrollArea className="h-[280px] pr-3">
+              <div className="space-y-2">
+                {chartData.map((item) => {
+                const percentage = totalTraffic > 0 ? (item.value / totalTraffic) * 100 : 0;
+                const barPercent = maxTotal > 0 ? (item.value / maxTotal) * 100 : 0;
+                const isSelected = selectedRule === item.rawName;
+                const noTraffic = !item.hasTraffic;
+
+                // Badge color based on rank
+                const badgeColor = noTraffic
+                  ? "bg-muted text-muted-foreground"
+                  : item.rank === 0
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  : item.rank === 1
+                  ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  : item.rank === 2
+                  ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                  : "bg-muted text-muted-foreground";
+
+                return (
+                  <button
+                    key={item.rawName}
+                    onClick={() => !noTraffic && handleRuleClick(item.rawName)}
+                    className={cn(
+                      "w-full p-2.5 rounded-xl border text-left transition-all duration-200",
+                      noTraffic
+                        ? "border-border/30 bg-card/30 opacity-50 cursor-default"
+                        : isSelected
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                        : "border-border/50 bg-card/50 hover:bg-card hover:border-primary/30"
+                    )}>
+                    {/* Row 1: Rank + Name + Total */}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className={cn(
+                        "w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0",
+                        badgeColor
+                      )}>
+                        {noTraffic ? "–" : item.rank + 1}
+                      </span>
+
+                      <span className="flex-1 text-sm font-medium truncate" title={item.name}>
+                        {item.name}
+                      </span>
+
+                      <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">
+                        {noTraffic ? (
+                          <span className="text-xs font-normal text-muted-foreground">{t("noTrafficRecord")}</span>
+                        ) : formatBytes(item.value)}
+                      </span>
+                    </div>
+
+                    {/* Row 2: Progress bar + Stats (hidden for zero-traffic) */}
+                    {!noTraffic && (
+                    <div className="pl-7 space-y-1">
+                      {/* Progress bar - dual color */}
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                        <div
+                          className="h-full bg-blue-500 dark:bg-blue-400"
+                          style={{ width: `${item.value > 0 ? (item.download / item.value) * barPercent : 0}%` }}
+                        />
+                        <div
+                          className="h-full bg-purple-500 dark:bg-purple-400"
+                          style={{ width: `${item.value > 0 ? (item.upload / item.value) * barPercent : 0}%` }}
+                        />
+                      </div>
+                      {/* Stats */}
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
+                          <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
+                          <span className="flex items-center gap-1 tabular-nums">
+                            <Link2 className="w-3 h-3" />
+                            {formatNumber(item.connections)}
+                          </span>
+                        </div>
+                        <span className="tabular-nums">{percentage.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    )}
+                  </button>
+                );
+              })}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Right: Top Domains Chart (5 columns) */}
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                {t("topDomains")}
+              </CardTitle>
+              {selectedRuleData && (
+                <span className="text-xs text-muted-foreground">
+                  {selectedRuleData.name}
+                </span>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <InsightChartSkeleton />
+            ) : domainChartData.length === 0 ? (
+              <div className="h-[280px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                <BarChart3 className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                <p className="text-sm font-medium text-muted-foreground">{domainsT("noData")}</p>
+                <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">{emptyHint}</p>
+              </div>
+            ) : (
+              <div className="h-[280px] w-full min-w-0 overflow-hidden sm:overflow-visible">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={domainChartData}
+                    layout="vertical"
+                    margin={{ top: 5, right: showDomainBarLabels ? 50 : 10, left: 5, bottom: 5 }}
+                  >
+                    <CartesianGrid 
+                      strokeDasharray="3 3" 
+                      stroke="#888888" 
+                      opacity={0.2} 
+                      horizontal={false} 
+                    />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(value) => formatBytes(value, 0)}
+                      tick={{ fill: "#888888", fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                type="category"
+                dataKey="name"
+                width={90}
+                tick={{ fontSize: 10, fill: "currentColor" }}
+                tickLine={false}
+                axisLine={false}
+              />
+                    <RechartsTooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const item = payload[0].payload;
+                          return (
+                            <div className="bg-background border border-border p-3 rounded-lg shadow-lg min-w-[200px] max-w-[90vw] sm:min-w-[280px]">
+                              <div className="flex items-center gap-2 mb-3">
+                                <Favicon domain={item.fullDomain} size="sm" />
+                                <span className="font-medium text-sm text-foreground truncate max-w-[200px]">
+                                  {item.fullDomain}
+                                </span>
+                              </div>
+                              <div className="space-y-2 text-xs">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-muted-foreground">Total Traffic</span>
+                                  <span className="font-semibold text-foreground">{formatBytes(item.total)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-blue-500">Download</span>
+                                  <span className="text-foreground">{formatBytes(item.download)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-purple-500">Upload</span>
+                                  <span className="text-foreground">{formatBytes(item.upload)}</span>
+                                </div>
+                                <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                                  <span className="text-emerald-500">Connections</span>
+                                  <span className="text-foreground">{formatNumber(item.connections)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                      cursor={{ fill: "rgba(128, 128, 128, 0.1)" }} 
+                    />
+                    <Bar
+                      dataKey="total"
+                      radius={[0, 4, 4, 0]}
+                      maxBarSize={24}
+                      isAnimationActive={false}
+                    >
+                      {domainChartData.map((entry, index) => (
+                        <BarCell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    {showDomainBarLabels && (
+                      <LabelList
+                        dataKey="total"
+                        position="right"
+                        content={renderCustomBarLabel}
+                      />
+                    )}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Unified Chain Flow Visualization - shows all rules, highlights selected */}
+      <UnifiedRuleChainFlow
+        selectedRule={selectedRule}
+        activeBackendId={activeBackendId}
+        timeRange={stableTimeRange}
+        autoRefresh={autoRefresh}
+      />
+
+      {/* Bottom Section: Domain List & IP Addresses with pagination */}
+      {selectedRule ? (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* Simplified Tabs - no icons, no counts, like Domains page */}
+          <TabsList className="glass">
+            <TabsTrigger value="domains">
+              {domainsT("domainList")}
+            </TabsTrigger>
+            <TabsTrigger value="ips">
+              {ipsT("ipList")}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="domains" className="mt-4">
+            <Card>
+              {/* Header with search */}
+              <div className="p-4 border-b border-border/50">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">{domainsT("associatedDomains")}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {filteredDomains.length} {domainsT("domainsCount")}
+                    </p>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      placeholder={domainsT("search")}
+                      value={domainSearch}
+                      onChange={(e) => {
+                        setDomainSearch(e.target.value);
+                        setDomainPage(1);
+                      }}
+                      className="h-9 w-full sm:w-[240px] bg-secondary/50 border-0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <CardContent className="p-0">
+                {loading ? (
+                  <InsightTableSkeleton />
+                ) : filteredDomains.length === 0 ? (
+                  <div className="px-4 py-6">
+                    <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                      <Globe className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {domainSearch ? domainsT("noResults") : domainsT("noData")}
+                      </p>
+                      {!domainSearch && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">
+                          {isBackendUnavailable ? backendT("backendUnavailableHint") : domainsT("noDataHint")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table Header */}
+                    <div className="hidden sm:grid grid-cols-12 gap-3 px-5 py-3 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <div 
+                        className="col-span-3 flex items-center cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleDomainSort("domain")}
+                      >
+                        {domainsT("domain")}
+                        <DomainSortIcon column="domain" />
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        {domainsT("proxy")}
+                      </div>
+                      <div 
+                        className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleDomainSort("totalDownload")}
+                      >
+                        {domainsT("download")}
+                        <DomainSortIcon column="totalDownload" />
+                      </div>
+                      <div 
+                        className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleDomainSort("totalUpload")}
+                      >
+                        {domainsT("upload")}
+                        <DomainSortIcon column="totalUpload" />
+                      </div>
+                      <div 
+                        className="col-span-1 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleDomainSort("totalConnections")}
+                      >
+                        {domainsT("conn")}
+                        <DomainSortIcon column="totalConnections" />
+                      </div>
+                      <div className="col-span-2 flex items-center justify-end">
+                        {domainsT("ipCount")}
+                      </div>
+                    </div>
+
+                    {/* Mobile Sort Bar */}
+                    <div className="sm:hidden flex items-center gap-2 px-4 py-2 bg-secondary/30 overflow-x-auto scrollbar-hide">
+                      {([
+                        { key: "domain" as DomainSortKey, label: domainsT("domain") },
+                        { key: "totalDownload" as DomainSortKey, label: domainsT("download") },
+                        { key: "totalUpload" as DomainSortKey, label: domainsT("upload") },
+                        { key: "totalConnections" as DomainSortKey, label: domainsT("conn") },
+                      ]).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          className={cn(
+                            "flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors",
+                            domainSortKey === key
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => handleDomainSort(key)}
+                        >
+                          {label}
+                          {domainSortKey === key && (
+                            domainSortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Domain List */}
+                    <div className="divide-y divide-border/30">
+                      {(() => {
+                        return paginatedDomains.map((domain, index) => {
+                          const domainTraffic = domain.totalDownload + domain.totalUpload;
+                          const percent =
+                            totalFilteredDomainTraffic > 0
+                              ? (domainTraffic / totalFilteredDomainTraffic) * 100
+                              : 0;
+                          const isExpanded = expandedDomain === domain.domain;
+                          
+                          return (
+                            <div key={domain.domain} className="group">
+                              {/* Desktop Row */}
+                              <div
+                                className={cn(
+                                  "hidden sm:grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-secondary/20 transition-colors cursor-pointer",
+                                  isExpanded && "bg-secondary/10"
+                                )}
+                                style={{ animationDelay: `${index * 50}ms` }}
+                                onClick={() => toggleExpandDomain(domain.domain)}
+                              >
+                                {/* Domain with Favicon */}
+                                <div className="col-span-3 flex items-center gap-3 min-w-0">
+                                  <Favicon domain={domain.domain} size="sm" className="shrink-0" />
+                                  <DomainPreview
+                                    className="flex-1"
+                                    domain={domain.domain}
+                                    unknownLabel={domainsT("unknown")}
+                                    copyLabel={domainsT("copyDomain")}
+                                    copiedLabel={domainsT("copied")}
+                                  />
+                                </div>
+
+                                {/* Proxy */}
+                                <div className="col-span-2 flex items-center gap-1.5 min-w-0">
+                                  <ProxyChainBadge chains={domain.chains} />
+                                </div>
+
+                                {/* Download */}
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
+                                  <span className="text-blue-500">{formatBytes(domain.totalDownload)}</span>
+                                </div>
+
+                                {/* Upload */}
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
+                                  <span className="text-purple-500">{formatBytes(domain.totalUpload)}</span>
+                                </div>
+
+                                {/* Connections */}
+                                <div className="col-span-1 flex items-center justify-end">
+                                  <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">
+                                    {formatNumber(domain.totalConnections)}
+                                  </span>
+                                </div>
+
+                                {/* IP Count - Clickable */}
+                                <div className="col-span-2 flex items-center justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-7 px-2 gap-1 text-xs font-medium transition-all",
+                                      isExpanded 
+                                        ? "bg-primary/10 text-primary hover:bg-primary/20" 
+                                        : "bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpandDomain(domain.domain);
+                                    }}
+                                  >
+                                    <Server className="h-3 w-3" />
+                                    {domain.ips.length}
+                                    {isExpanded ? (
+                                      <ChevronUp className="h-3 w-3 ml-0.5" />
+                                    ) : (
+                                      <ChevronDown className="h-3 w-3 ml-0.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {/* Mobile Row - Card-style layout */}
+                              <div
+                                className={cn(
+                                  "sm:hidden px-4 py-3 hover:bg-secondary/20 transition-colors cursor-pointer",
+                                  isExpanded && "bg-secondary/10"
+                                )}
+                                onClick={() => toggleExpandDomain(domain.domain)}
+                              >
+                                {/* Top: Favicon + Domain + Expand */}
+                                <div className="flex items-center gap-2.5 mb-2">
+                                  <Favicon domain={domain.domain} size="sm" className="shrink-0" />
+                                  <DomainPreview
+                                    className="flex-1"
+                                    domain={domain.domain}
+                                    unknownLabel={domainsT("unknown")}
+                                    copyLabel={domainsT("copyDomain")}
+                                    copiedLabel={domainsT("copied")}
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-7 px-2 gap-1 text-xs font-medium shrink-0",
+                                      isExpanded 
+                                        ? "bg-primary/10 text-primary" 
+                                        : "bg-secondary/50 text-muted-foreground"
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpandDomain(domain.domain);
+                                    }}
+                                  >
+                                    <Server className="h-3 w-3" />
+                                    {domain.ips.length}
+                                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                  </Button>
+                                </div>
+
+                                {/* Proxy row */}
+                                {domain.chains && domain.chains.length > 0 && (
+                                  <div className="flex items-center gap-1.5 mb-2 pl-[30px]">
+                                    <ProxyChainBadge chains={domain.chains} truncateLabel={false} />
+                                  </div>
+                                )}
+
+                                {/* Bottom: Stats row */}
+                                <div className="flex items-center justify-between text-xs pl-[30px]">
+                                  <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(domain.totalDownload)}</span>
+                                  <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(domain.totalUpload)}</span>
+                                  <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
+                                    {formatNumber(domain.totalConnections)} {domainsT("conn")}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Expanded Details: Proxy Traffic + Associated IPs */}
+                              {isExpanded && (
+                                <ExpandReveal>
+                                  <DomainExpandedDetails
+                                    domain={domain}
+                                    proxyStats={expandedDomainProxyQuery.data ?? []}
+                                    proxyStatsLoading={
+                                      expandedDomainProxyQuery.isLoading &&
+                                      !expandedDomainProxyQuery.data
+                                    }
+                                    ipDetails={expandedDomainIPDetailsQuery.data ?? []}
+                                    ipDetailsLoading={
+                                      expandedDomainIPDetailsQuery.isLoading &&
+                                      !expandedDomainIPDetailsQuery.data
+                                    }
+                                    labels={{
+                                      proxyTraffic: domainsT("proxyTraffic"),
+                                      associatedIPs: domainsT("associatedIPs"),
+                                      conn: domainsT("conn"),
+                                    }}
+                                  />
+                                </ExpandReveal>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                    {/* Pagination */}
+                    {filteredDomains.length > 0 && (
+                      <div className="p-3 border-t border-border/50 bg-secondary/20">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground hover:text-foreground">
+                                  <Rows3 className="h-4 w-4" />
+                                  <span>{detailPageSize} / {domainsT("page")}</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                {PAGE_SIZE_OPTIONS.map((size) => (
+                                  <DropdownMenuItem
+                                    key={size}
+                                    onClick={() => {
+                                      setDetailPageSize(size);
+                                      setDomainPage(1);
+                                      setIpPage(1);
+                                    }}
+                                    className={detailPageSize === size ? "bg-primary/10" : ""}
+                                  >
+                                    {size} / {domainsT("page")}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">
+                            <p className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                              {(domainPage - 1) * detailPageSize + 1}-{Math.min(domainPage * detailPageSize, filteredDomains.length)} / {filteredDomains.length}
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setDomainPage(p => Math.max(1, p - 1))}
+                                disabled={domainPage === 1}
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </Button>
+                              {getPageNumbers(domainPage, domainTotalPages).map((page, idx) => (
+                                page === '...' ? (
+                                  <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-xs">...</span>
+                                ) : (
+                                  <Button
+                                    key={page}
+                                    variant={domainPage === page ? "default" : "ghost"}
+                                    size="sm"
+                                    className="h-8 w-8 px-0 text-xs"
+                                    onClick={() => setDomainPage(page as number)}
+                                  >
+                                    {page}
+                                  </Button>
+                                )
+                              ))}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setDomainPage(p => Math.min(domainTotalPages, p + 1))}
+                                disabled={domainPage === domainTotalPages}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="ips" className="mt-4">
+            <Card>
+              {/* Header with search */}
+              <div className="p-4 border-b border-border/50">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">{ipsT("associatedIPs")}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {filteredIPs.length} IPs
+                    </p>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      placeholder={ipsT("search")}
+                      value={ipSearch}
+                      onChange={(e) => {
+                        setIpSearch(e.target.value);
+                        setIpPage(1);
+                      }}
+                      className="h-9 w-full sm:w-[240px] bg-secondary/50 border-0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <CardContent className="p-0">
+                {loading ? (
+                  <InsightTableSkeleton />
+                ) : filteredIPs.length === 0 ? (
+                  <div className="px-4 py-6">
+                    <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
+                      <Server className="h-5 w-5 text-muted-foreground/70 mb-2" />
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {ipSearch ? ipsT("noResults") : ipsT("noData")}
+                      </p>
+                      {!ipSearch && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">
+                          {isBackendUnavailable ? backendT("backendUnavailableHint") : ipsT("noDataHint")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table Header */}
+                    <div className="hidden sm:grid grid-cols-12 gap-3 px-5 py-3 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <div 
+                        className="col-span-3 flex items-center cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleIPSort("ip")}
+                      >
+                        {ipsT("ipAddress")}
+                        <IPSortIcon column="ip" />
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        {ipsT("proxy")}
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        {ipsT("location")}
+                      </div>
+                      <div 
+                        className="col-span-2 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleIPSort("totalDownload")}
+                      >
+                        {ipsT("download")}
+                        <IPSortIcon column="totalDownload" />
+                      </div>
+                      <div 
+                        className="col-span-1 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleIPSort("totalUpload")}
+                      >
+                        {ipsT("upload")}
+                        <IPSortIcon column="totalUpload" />
+                      </div>
+                      <div 
+                        className="col-span-1 flex items-center justify-end cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleIPSort("totalConnections")}
+                      >
+                        {ipsT("conn")}
+                        <IPSortIcon column="totalConnections" />
+                      </div>
+                      <div className="col-span-1 flex items-center justify-end">
+                        {ipsT("domainCount")}
+                      </div>
+                    </div>
+
+                    {/* Mobile Sort Bar */}
+                    <div className="sm:hidden flex items-center gap-2 px-4 py-2 bg-secondary/30 overflow-x-auto scrollbar-hide">
+                      {([
+                        { key: "ip" as IPSortKey, label: ipsT("ipAddress") },
+                        { key: "totalDownload" as IPSortKey, label: ipsT("download") },
+                        { key: "totalUpload" as IPSortKey, label: ipsT("upload") },
+                        { key: "totalConnections" as IPSortKey, label: ipsT("conn") },
+                      ]).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          className={cn(
+                            "flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors",
+                            ipSortKey === key
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => handleIPSort(key)}
+                        >
+                          {label}
+                          {ipSortKey === key && (
+                            ipSortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* IP List */}
+                    <div className="divide-y divide-border/30">
+                      {(() => {
+                        return paginatedIPs.map((ip, index) => {
+                          const ipTraffic = ip.totalDownload + ip.totalUpload;
+                          const percent =
+                            totalFilteredIPTraffic > 0
+                              ? (ipTraffic / totalFilteredIPTraffic) * 100
+                              : 0;
+                          const isExpanded = expandedIP === ip.ip;
+                          const ipColor = getIPColor(ip.ip);
+                          
+                          return (
+                            <div key={ip.ip} className="group">
+                              {/* Desktop Row */}
+                              <div
+                                className={cn(
+                                  "hidden sm:grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-secondary/20 transition-colors cursor-pointer",
+                                  isExpanded && "bg-secondary/10"
+                                )}
+                                style={{ animationDelay: `${index * 50}ms` }}
+                                onClick={() => toggleExpandIP(ip.ip)}
+                              >
+                                {/* IP with Icon */}
+                                <div className="col-span-3 flex items-center gap-3 min-w-0">
+                                  <div className={`w-5 h-5 rounded-md ${ipColor.bg} ${ipColor.text} flex items-center justify-center shrink-0`}>
+                                    <Server className="w-3 h-3" />
+                                  </div>
+                                  <code className="text-sm font-mono truncate">{ip.ip}</code>
+                                </div>
+
+                                {/* Proxy */}
+                                <div className="col-span-2 flex items-center gap-1.5 min-w-0">
+                                  <ProxyChainBadge chains={ip.chains} />
+                                </div>
+
+                                {/* Location */}
+                                <div className="col-span-2 flex items-center gap-1.5 min-w-0">
+                                    {ip.geoIP && ip.geoIP.length > 0 ? (
+                                      <>
+                                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" title={ip.geoIP[1] || ip.geoIP[0]} />
+                                      <span className="text-xs whitespace-nowrap">{ip.geoIP[1] || ip.geoIP[0]}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </div>
+
+                                {/* Download */}
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
+                                  <span className="text-blue-500">{formatBytes(ip.totalDownload)}</span>
+                                </div>
+
+                                {/* Upload */}
+                                <div className="col-span-1 text-right tabular-nums text-sm whitespace-nowrap">
+                                  <span className="text-purple-500">{formatBytes(ip.totalUpload)}</span>
+                                </div>
+
+                                {/* Connections */}
+                                <div className="col-span-1 flex items-center justify-end">
+                                  <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">
+                                    {formatNumber(ip.totalConnections)}
+                                  </span>
+                                </div>
+
+                                {/* Domains Count - Clickable */}
+                                <div className="col-span-1 flex items-center justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-7 px-2 gap-1 text-xs font-medium transition-all",
+                                      isExpanded 
+                                        ? "bg-primary/10 text-primary hover:bg-primary/20" 
+                                        : "bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpandIP(ip.ip);
+                                    }}
+                                  >
+                                    <Link2 className="h-3 w-3" />
+                                    {ip.domains.length}
+                                    {isExpanded ? (
+                                      <ChevronUp className="h-3 w-3 ml-0.5" />
+                                    ) : (
+                                      <ChevronDown className="h-3 w-3 ml-0.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {/* Mobile Row - Card-style layout */}
+                              <div
+                                className={cn(
+                                  "sm:hidden px-4 py-3 hover:bg-secondary/20 transition-colors cursor-pointer",
+                                  isExpanded && "bg-secondary/10"
+                                )}
+                                onClick={() => toggleExpandIP(ip.ip)}
+                              >
+                                {/* Top: IP Icon + IP + Location + Expand */}
+                                <div className="flex items-center gap-2.5 mb-2">
+                                  <div className={`w-5 h-5 rounded-md ${ipColor.bg} ${ipColor.text} flex items-center justify-center shrink-0`}>
+                                    <Server className="w-3 h-3" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <code className="text-sm font-medium truncate block">{ip.ip}</code>
+                                    {ip.geoIP && ip.geoIP.length > 0 && (
+                                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                        <CountryFlag country={ip.geoIP[0]} className="h-3.5 w-5" />
+                                        <span className="truncate">{ip.geoIP[1] || ip.geoIP[0]}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-7 px-2 gap-1 text-xs font-medium shrink-0",
+                                      isExpanded 
+                                        ? "bg-primary/10 text-primary" 
+                                        : "bg-secondary/50 text-muted-foreground"
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpandIP(ip.ip);
+                                    }}
+                                  >
+                                    <Link2 className="h-3 w-3" />
+                                    {ip.domains.length}
+                                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                  </Button>
+                                </div>
+
+                                {/* Proxy row */}
+                                {ip.chains && ip.chains.length > 0 && (
+                                  <div className="flex items-center gap-1.5 mb-2 pl-[30px]">
+                                    <ProxyChainBadge chains={ip.chains} truncateLabel={false} />
+                                  </div>
+                                )}
+
+                                {/* Bottom: Stats row */}
+                                <div className="flex items-center justify-between text-xs pl-[30px]">
+                                  <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(ip.totalDownload)}</span>
+                                  <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(ip.totalUpload)}</span>
+                                  <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
+                                    {formatNumber(ip.totalConnections)} {ipsT("conn")}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Expanded Details: Proxy Traffic + Associated Domains */}
+                              {isExpanded && (
+                                <ExpandReveal>
+                                  <IPExpandedDetails
+                                    ip={ip}
+                                    proxyStats={expandedIPProxyQuery.data ?? []}
+                                    proxyStatsLoading={
+                                      expandedIPProxyQuery.isLoading &&
+                                      !expandedIPProxyQuery.data
+                                    }
+                                    domainDetails={expandedIPDomainDetailsQuery.data ?? []}
+                                    domainDetailsLoading={
+                                      expandedIPDomainDetailsQuery.isLoading &&
+                                      !expandedIPDomainDetailsQuery.data
+                                    }
+                                    associatedDomainsIcon="link"
+                                    labels={{
+                                      proxyTraffic: ipsT("proxyTraffic"),
+                                      associatedDomains: ipsT("associatedDomains"),
+                                      conn: ipsT("conn"),
+                                    }}
+                                  />
+                                </ExpandReveal>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                    {/* Pagination */}
+                    {filteredIPs.length > 0 && (
+                      <div className="p-3 border-t border-border/50 bg-secondary/20">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground hover:text-foreground">
+                                  <Rows3 className="h-4 w-4" />
+                                  <span>{detailPageSize} / {ipsT("page")}</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                {PAGE_SIZE_OPTIONS.map((size) => (
+                                  <DropdownMenuItem
+                                    key={size}
+                                    onClick={() => {
+                                      setDetailPageSize(size);
+                                      setDomainPage(1);
+                                      setIpPage(1);
+                                    }}
+                                    className={detailPageSize === size ? "bg-primary/10" : ""}
+                                  >
+                                    {size} / {ipsT("page")}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">
+                            <p className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                              {(ipPage - 1) * detailPageSize + 1}-{Math.min(ipPage * detailPageSize, filteredIPs.length)} / {filteredIPs.length}
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setIpPage(p => Math.max(1, p - 1))}
+                                disabled={ipPage === 1}
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </Button>
+                              {getPageNumbers(ipPage, ipTotalPages).map((page, idx) => (
+                                page === '...' ? (
+                                  <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-xs">...</span>
+                                ) : (
+                                  <Button
+                                    key={page}
+                                    variant={ipPage === page ? "default" : "ghost"}
+                                    size="sm"
+                                    className="h-8 w-8 px-0 text-xs"
+                                    onClick={() => setIpPage(page as number)}
+                                  >
+                                    {page}
+                                  </Button>
+                                )
+                              ))}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setIpPage(p => Math.min(ipTotalPages, p + 1))}
+                                disabled={ipPage === ipTotalPages}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <InsightDetailSectionSkeleton />
+      )}
+    </div>
+  );
+}

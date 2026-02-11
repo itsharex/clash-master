@@ -1,4 +1,4 @@
-import type { ClashProvidersResponse, ClashRulesResponse } from "./api";
+import type { GatewayProvidersResponse, GatewayRulesResponse } from "./api";
 
 export interface ActiveChainInfo {
   /** Set of node names that are part of active chains */
@@ -13,7 +13,7 @@ export interface ActiveChainInfo {
  * Build a map of group name → currently selected proxy/group name
  * from the providers/proxies response.
  */
-function buildGroupNowMap(providers: ClashProvidersResponse): Map<string, string> {
+function buildGroupNowMap(providers: GatewayProvidersResponse): Map<string, string> {
   const map = new Map<string, string>();
   for (const provider of Object.values(providers.providers)) {
     if (!provider.proxies) continue;
@@ -47,7 +47,7 @@ function followChain(startGroup: string, groupNowMap: Map<string, string>): stri
 }
 
 /**
- * Resolve active policy chains from Clash providers and rules data.
+ * Resolve active policy chains from Gateway providers and rules data.
  *
  * Uses the target proxy group name (rule.proxy) as the chain start,
  * NOT the internal rule type+payload (e.g. "RuleSet,netflix").
@@ -55,8 +55,8 @@ function followChain(startGroup: string, groupNowMap: Map<string, string>): stri
  * Multiple low-level rules can target the same proxy group, so we deduplicate.
  */
 export function resolveActiveChains(
-  providers: ClashProvidersResponse,
-  rules: ClashRulesResponse
+  providers: GatewayProvidersResponse,
+  rules: GatewayRulesResponse
 ): ActiveChainInfo {
   const groupNowMap = buildGroupNowMap(providers);
   const activeNodeNames = new Set<string>();

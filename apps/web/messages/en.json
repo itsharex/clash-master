@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "Clash Master - Traffic Analytics",
-    "description": "Real-time network traffic statistics and analytics"
+    "title": "Neko Master - Network Visualization",
+    "description": "Modern Network Traffic Analytics"
   },
   "nav": {
     "overview": "Overview",
@@ -14,8 +14,8 @@
     "settings": "Settings"
   },
   "header": {
-    "title": "Clash Master",
-    "subtitle": "Modern network visualization dashboard"
+    "title": "Neko Master",
+    "subtitle": "Modern Network Traffic Analytics"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -276,10 +276,10 @@
   "about": {
     "title": "About",
     "version": "Version",
-    "projectName": "Clash Master",
-    "description": "Modern network visualization dashboard",
+    "projectName": "Neko Master",
+    "description": "Modern Network Traffic Analytics",
     "github": "GitHub",
-    "openSource": "Clash Master",
+    "openSource": "Neko Master",
     "license": "MIT License",
     "currentVersion": "Current Version",
     "latestVersion": "Latest Version",
@@ -330,8 +330,8 @@
   },
   "backend": {
     "title": "Settings",
-    "firstTimeTitle": "Configure Clash Backend",
-    "firstTimeDescription": "Enter your Clash connection information to start monitoring traffic",
+    "firstTimeTitle": "Configure Gateway Backend",
+    "firstTimeDescription": "Enter your gateway connection information to start monitoring traffic",
     "description": "Manage backend connections and database",
     "backendsTab": "Backends",
     "databaseTab": "Database",

@@ -1,5 +1,5 @@
 /**
- * Data Retention Policy for Clash Master
+ * Data Retention Policy for Neko Master
  * 
  * Tiered storage strategy:
  * - Raw data (connection_logs): 7 days for detailed analysis

@@ -5,12 +5,10 @@ import type {
   ProxyStats,
   RuleStats,
   CountryStats,
-  HourlyStats,
-  DailyStats,
   TrafficTrendPoint,
   ProxyTrafficStats,
   DeviceStats,
-} from "@clashmaster/shared";
+} from "@neko-master/shared";
 
 type RuntimeConfig = {
   API_URL?: string;
@@ -43,7 +41,27 @@ const API_BASE = resolveApiBase();
 const DETAIL_FETCH_LIMIT = 5000;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 
-async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any): Promise<T> {
+class ApiError extends Error {
+  status: number;
+  url: string;
+
+  constructor(status: number, url: string) {
+    super(`API error: ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.url = url;
+  }
+}
+
+function isApiStatus(error: unknown, status: number): boolean {
+  return error instanceof ApiError && error.status === status;
+}
+
+async function fetchJson<T>(
+  url: string,
+  method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+  body?: unknown,
+): Promise<T> {
   if (method === "GET") {
     const inflight = inflightGetRequests.get(url);
     if (inflight) {
@@ -67,8 +85,7 @@ async function fetchJson<T>(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELET
   const requestPromise = (async () => {
     const res = await fetch(url, options);
     if (!res.ok) {
-      console.error(`[API] Error ${res.status}: ${url}`);
-      throw new Error(`API error: ${res.status}`);
+      throw new ApiError(res.status, url);
     }
     return await res.json() as T;
   })();
@@ -104,7 +121,7 @@ export interface Backend {
   updated_at: string;
 }
 
-export interface ClashProviderProxy {
+export interface GatewayProviderProxy {
   alive: boolean;
   name: string;
   type: string;
@@ -113,26 +130,37 @@ export interface ClashProviderProxy {
   history?: Array<{ time: string; delay: number }>;
 }
 
-export interface ClashProvider {
+export interface GatewayProvider {
   name: string;
   type: string;
   vehicleType: string;
-  proxies: ClashProviderProxy[];
+  proxies: GatewayProviderProxy[];
 }
 
-export interface ClashProvidersResponse {
-  providers: Record<string, ClashProvider>;
+export interface GatewayProvidersResponse {
+  providers: Record<string, GatewayProvider>;
 }
 
-export interface ClashRule {
+export interface GatewayRule {
   type: string;
   payload: string;
   proxy: string;
 }
 
-export interface ClashRulesResponse {
-  rules: ClashRule[];
+export interface GatewayRulesResponse {
+  rules: GatewayRule[];
 }
+
+const DEFAULT_DB_STATS = {
+  size: 0,
+  totalConnectionsCount: 0,
+} as const;
+
+const DEFAULT_RETENTION_CONFIG = {
+  connectionLogsDays: 7,
+  hourlyStatsDays: 30,
+  autoCleanup: true,
+} as const;
 
 function buildUrl(base: string, params: Record<string, string | number | undefined>): string {
   // Use simple URL construction for client-side relative URLs
@@ -157,16 +185,6 @@ export const api = {
       })
     ),
   
-  getGlobalSummary: () =>
-    fetchJson<{
-      totalConnections: number;
-      totalUpload: number;
-      totalDownload: number;
-      uniqueDomains: number;
-      uniqueIPs: number;
-      backendCount: number;
-    }>(`${API_BASE}/stats/global`),
-    
   getDomains: (backendId?: number, opts?: {
     offset?: number; limit?: number;
     sortBy?: string; sortOrder?: string; search?: string;
@@ -209,30 +227,6 @@ export const api = {
       end: range?.end,
     })),
     
-  getRuleProxies: (backendId?: number) =>
-    fetchJson<{ rule: string; proxies: string[] }[]>(
-      buildUrl(`${API_BASE}/stats/rule-proxy-map`, { backendId })
-    ),
-    
-  getHourly: (backendId?: number, hours = 24, range?: TimeRange) =>
-    fetchJson<HourlyStats[]>(buildUrl(`${API_BASE}/stats/hourly`, {
-      backendId,
-      hours,
-      start: range?.start,
-      end: range?.end,
-    })),
-    
-  getDaily: (backendId?: number, days = 7) =>
-    fetchJson<DailyStats[]>(buildUrl(`${API_BASE}/stats/daily`, { backendId, days })),
-    
-  getTrafficTrend: (backendId?: number, minutes = 30, range?: TimeRange) =>
-    fetchJson<TrafficTrendPoint[]>(buildUrl(`${API_BASE}/stats/trend`, {
-      backendId,
-      minutes,
-      start: range?.start,
-      end: range?.end,
-    })),
-
   getTrafficTrendAggregated: (backendId?: number, minutes = 30, bucketMinutes = 1, range?: TimeRange) =>
     fetchJson<TrafficTrendPoint[]>(
       buildUrl(`${API_BASE}/stats/trend/aggregated`, {
@@ -242,11 +236,6 @@ export const api = {
         start: range?.start,
         end: range?.end,
       })
-    ),
-    
-  getConnections: (backendId?: number, limit = 100) =>
-    fetchJson<Array<{ id: number; domain: string; ip: string; chain: string; upload: number; download: number; timestamp: string }>>(
-      buildUrl(`${API_BASE}/stats/connections`, { backendId, limit })
     ),
     
   getDomainProxyStats: (
@@ -463,16 +452,6 @@ export const api = {
       })
     ),
 
-  getRuleChainFlow: (rule: string, backendId?: number, range?: TimeRange) =>
-    fetchJson<{ nodes: Array<{ name: string; totalUpload: number; totalDownload: number; totalConnections: number }>; links: Array<{ source: number; target: number }> }>(
-      buildUrl(`${API_BASE}/stats/rules/chain-flow`, {
-        rule,
-        backendId,
-        start: range?.start,
-        end: range?.end,
-      })
-    ),
-
   getAllRuleChainFlows: (backendId?: number, range?: TimeRange) =>
     fetchJson<{
       nodes: Array<{ name: string; layer: number; nodeType: 'rule' | 'group' | 'proxy'; totalUpload: number; totalDownload: number; totalConnections: number; rules: string[] }>;
@@ -487,26 +466,15 @@ export const api = {
       })
     ),
 
-  getClashProviders: (backendId?: number) =>
-    fetchJson<ClashProvidersResponse>(buildUrl(`${API_BASE}/clash/providers/proxies`, { backendId })),
+  getGatewayProviders: (backendId?: number) =>
+    fetchJson<GatewayProvidersResponse>(buildUrl(`${API_BASE}/gateway/providers/proxies`, { backendId })),
 
-  getClashRules: (backendId?: number) =>
-    fetchJson<ClashRulesResponse>(buildUrl(`${API_BASE}/clash/rules`, { backendId })),
-
-  search: (q: string) =>
-    fetchJson<DomainStats[]>(
-      `${API_BASE}/search?q=${encodeURIComponent(q)}`
-    ),
+  getGatewayRules: (backendId?: number) =>
+    fetchJson<GatewayRulesResponse>(buildUrl(`${API_BASE}/gateway/rules`, { backendId })),
     
   // Backend management
   getBackends: () =>
     fetchJson<Backend[]>(`${API_BASE}/backends`),
-    
-  getActiveBackend: () =>
-    fetchJson<Backend | { error: string }>(`${API_BASE}/backends/active`),
-
-  getListeningBackends: () =>
-    fetchJson<Backend[]>(`${API_BASE}/backends/listening`),
     
   createBackend: (backend: { name: string; url: string; token?: string }) =>
     fetchJson<{ id: number; isActive?: boolean; message: string }>(`${API_BASE}/backends`, 'POST', backend),
@@ -533,17 +501,32 @@ export const api = {
     fetchJson<{ success: boolean; message: string }>(`${API_BASE}/backends/${id}/test`, 'POST'),
     
   // Database management
-  getDbStats: () =>
-    fetchJson<{ size: number; totalConnectionsCount: number }>(`${API_BASE}/db/stats`),
+  getDbStats: async () => {
+    try {
+      return await fetchJson<{ size: number; totalConnectionsCount: number }>(`${API_BASE}/db/stats`);
+    } catch (error) {
+      if (isApiStatus(error, 404)) {
+        return { ...DEFAULT_DB_STATS };
+      }
+      throw error;
+    }
+  },
     
   clearLogs: (days: number, backendId?: number) =>
     fetchJson<{ message: string; deleted: number }>(`${API_BASE}/db/cleanup`, 'POST', { days, backendId }),
 
-  vacuumDatabase: () =>
-    fetchJson<{ message: string }>(`${API_BASE}/db/vacuum`, 'POST'),
-
-  getRetentionConfig: () =>
-    fetchJson<{ connectionLogsDays: number; hourlyStatsDays: number; autoCleanup: boolean }>(`${API_BASE}/db/retention`),
+  getRetentionConfig: async () => {
+    try {
+      return await fetchJson<{ connectionLogsDays: number; hourlyStatsDays: number; autoCleanup: boolean }>(
+        `${API_BASE}/db/retention`
+      );
+    } catch (error) {
+      if (isApiStatus(error, 404)) {
+        return { ...DEFAULT_RETENTION_CONFIG };
+      }
+      throw error;
+    }
+  },
 
   updateRetentionConfig: (config: { connectionLogsDays: number; hourlyStatsDays: number; autoCleanup?: boolean }) =>
     fetchJson<{ message: string }>(`${API_BASE}/db/retention`, 'PUT', config),

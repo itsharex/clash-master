@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "Clash Master - 流量分析",
-    "description": "实时网络流量统计与分析"
+    "title": "Neko Master - 流量分析",
+    "description": "现代网络流量分析平台"
   },
   "nav": {
     "overview": "概览",
@@ -14,8 +14,8 @@
     "settings": "设置"
   },
   "header": {
-    "title": "Clash Master",
-    "subtitle": "现代网络可视化分析面板"
+    "title": "Neko Master",
+    "subtitle": "现代网络流量分析平台"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -275,10 +275,10 @@
   "about": {
     "title": "关于",
     "version": "版本",
-    "projectName": "Clash Master",
-    "description": "现代的网络可视化分析面板",
+    "projectName": "Neko Master",
+    "description": "现代网络流量分析平台",
     "github": "GitHub",
-    "openSource": "开源项目",
+    "openSource": "Neko Master",
     "license": "MIT 许可证",
     "currentVersion": "当前版本",
     "latestVersion": "最新版本",

@@ -1,19 +1,19 @@
 <p align="center">
-  <img src="./assets/icon-clash-master.png" width="200" alt="Clash Master Logo" style="margin-bottom: 16px;">
+  <img src="./assets/icon-neko-master.png" width="200" alt="Neko Master Logo" style="margin-bottom: 16px;">
   <br>
-  <b style="font-size: 32px;">Clash Master</b>
+  <b style="font-size: 32px;">Neko Master</b>
 </p>
 
 <p align="center">
-  <b>优雅且现代化的网络可视化分析面板</b><br>
+  <b>优雅且现代化的网络可视化分析工具</b><br>
   <span>实时监控 · 流量审计 · 多网关管理</span>
 </p>
 
 <p align="center">
-  <a href="https://github.com/foru17/clash-master/stargazers"><img src="https://img.shields.io/github/stars/foru17/clash-master?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="https://hub.docker.com/r/foru17/clash-master"><img src="https://img.shields.io/docker/pulls/foru17/clash-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
-  <a href="https://hub.docker.com/r/foru17/clash-master"><img src="https://img.shields.io/docker/v/foru17/clash-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
-  <a href="https://github.com/foru17/clash-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/clash-master?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/foru17/neko-master/stargazers"><img src="https://img.shields.io/github/stars/foru17/neko-master?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
+  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
+  <a href="https://github.com/foru17/neko-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/neko-master?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js" alt="Node.js">
 </p>
 
@@ -31,9 +31,9 @@
 >
 > 本项目遵循 MIT 协议开源，不对因使用本软件产生的任何后果承担责任。请在合规范围内使用。
 
-![Clash Master Overview](./assets/clash-master-overview.png)
-![Clash Master Rules](./assets/clash-master-rules.png)
-![Clash Master Regions](./assets/clash-master-regions.png)
+![Neko Master Overview](./assets/neko-master-overview.png)
+![Neko Master Rules](./assets/neko-master-rules.png)
+![Neko Master Regions](./assets/neko-master-regions.png)
 
 ## 📋 目录
 
@@ -55,9 +55,9 @@
 
 ```yaml
 services:
-  clash-master:
-    image: foru17/clash-master:latest
-    container_name: clash-master
+  neko-master:
+    image: foru17/neko-master:latest
+    container_name: neko-master
     restart: unless-stopped
     ports:
       - "3000:3000" # Web UI
@@ -75,9 +75,9 @@ services:
 
 ```yaml
 services:
-  clash-master:
-    image: foru17/clash-master:latest
-    container_name: clash-master
+  neko-master:
+    image: foru17/neko-master:latest
+    container_name: neko-master
     restart: unless-stopped
     ports:
       - "3000:3000" # Web UI
@@ -102,20 +102,20 @@ docker compose up -d
 ```bash
 # 最简（仅 3000）
 docker run -d \
-  --name clash-master \
+  --name neko-master \
   -p 3000:3000 \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
-  foru17/clash-master:latest
+  foru17/neko-master:latest
 
 # 实时 WS（配合反代）
 docker run -d \
-  --name clash-master \
+  --name neko-master \
   -p 3000:3000 \
   -p 3002:3002 \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
-  foru17/clash-master:latest
+  foru17/neko-master:latest
 ```
 
 > 默认前端 API 走同域 `/api`，通常不需要额外暴露 3001。  
@@ -132,10 +132,10 @@ docker run -d \
 
 ```bash
 # 使用 curl
-curl -fsSL https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 
 # 或使用 wget
-wget -qO- https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+wget -qO- https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 ```
 
 脚本会自动：
@@ -149,8 +149,8 @@ wget -qO- https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | 
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/foru17/clash-master.git
-cd clash-master
+git clone https://github.com/foru17/neko-master.git
+cd neko-master
 
 # 2. 安装依赖
 pnpm install
@@ -163,7 +163,7 @@ pnpm dev
 
 ## 📖 首次使用
 
-![首次使用](./assets/clash-master-setup.png)
+![首次使用](./assets/neko-master-setup.png)
 
 1. 打开 <http://localhost:3000>
 2. 首次访问会弹出**网关配置**对话框
@@ -213,7 +213,7 @@ ports:
 ### 方案 3：使用一键脚本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 ```
 
 脚本会自动检测并提供可用的端口。
@@ -260,7 +260,7 @@ server {
   server_name clash.example.com;
 
   location / {
-    proxy_pass http://<clash-master-host>:3000;
+    proxy_pass http://<neko-master-host>:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -269,7 +269,7 @@ server {
   }
 
   location ^~ /_cm_ws {
-    proxy_pass http://<clash-master-host>:3002;
+    proxy_pass http://<neko-master-host>:3002;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -394,10 +394,10 @@ docker compose up -d
 
 ```bash
 # 查看所有日志
-docker logs -f clash-master
+docker logs -f neko-master
 
 # 只看最后 100 行
-docker logs --tail 100 clash-master
+docker logs --tail 100 neko-master
 ```
 
 ### Q: 如何备份数据？
@@ -419,7 +419,7 @@ cp -r ./data ./data-backup-$(date +%Y%m%d)
 ## 📁 项目结构
 
 ```
-clash-master/
+neko-master/
 ├── docker-compose.yml      # Docker Compose 配置
 ├── Dockerfile              # Docker 镜像构建
 ├── setup.sh                # 一键配置脚本
@@ -448,7 +448,7 @@ MIT License © 2024 [foru17](https://github.com/foru17)
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=foru17/clash-master&type=date&legend=top-left)](https://www.star-history.com/#foru17/clash-master&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=foru17/neko-master&type=date&legend=top-left)](https://www.star-history.com/#foru17/neko-master&type=date&legend=top-left)
 
 ---
 

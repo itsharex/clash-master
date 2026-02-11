@@ -5,36 +5,28 @@ import { useTranslations } from "next-intl";
 import { TopDomainsSimple } from "./top-domains-simple";
 import { TopProxiesSimple } from "./top-proxies-simple";
 import { TopCountriesSimple } from "./top-countries-simple";
-import { TrafficTrendChart } from "@/components/traffic-trend-chart";
+import { TrafficTrendChart } from "@/components/features/stats/charts/trend-chart";
 import { useStatsWebSocket } from "@/lib/websocket";
 import { api, type TimeRange } from "@/lib/api";
+import type { TimePreset } from "@/lib/types/dashboard";
 import type {
   DomainStats,
   ProxyStats,
   CountryStats,
   TrafficTrendPoint,
   StatsSummary,
-} from "@clashmaster/shared";
+} from "@neko-master/shared";
 
 type TrendTimeRange = "30m" | "1h" | "24h";
 type TrendGranularity = "minute" | "day";
-type GlobalTimePreset =
-  | "1m"
-  | "5m"
-  | "15m"
-  | "30m"
-  | "24h"
-  | "7d"
-  | "30d"
-  | "today"
-  | "custom";
+export type GlobalTimePreset = TimePreset;
 
 interface OverviewTabProps {
   domains: DomainStats[];
   proxies: ProxyStats[];
   countries: CountryStats[];
   timeRange: TimeRange;
-  timePreset: GlobalTimePreset;
+  timePreset: TimePreset;
   activeBackendId?: number;
   autoRefresh?: boolean;
   onNavigate?: (tab: string) => void;

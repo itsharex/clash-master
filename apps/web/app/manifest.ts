@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Clash Master",
-    short_name: "Clash Master",
-    description: "Modern network traffic analysis dashboard",
+    name: "Neko Master",
+    short_name: "Neko Master",
+    description: "Modern Network Traffic Analytics",
     start_url: "/",
     scope: "/",
     display: "standalone",

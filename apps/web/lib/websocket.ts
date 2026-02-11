@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { StatsSummary } from '@clashmaster/shared';
+import type { StatsSummary } from '@neko-master/shared';
 import type { TimeRange } from '@/lib/api';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';

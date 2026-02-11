@@ -1,19 +1,19 @@
 <p align="center">
-  <img src="./assets/icon-clash-master.png" width="200" alt="Clash Master Logo" style="margin-bottom: 16px;">
+  <img src="./assets/icon-neko-master.png" width="200" alt="Neko Master Logo" style="margin-bottom: 16px;">
   <br>
-  <b style="font-size: 32px;">Clash Master</b>
+  <b style="font-size: 32px;">Neko Master</b>
 </p>
 
 <p align="center">
-  <b>Modern network visualization dashboard</b><br>
+  <b>Modern Network Traffic Analytics</b><br>
   <span>Real-time Monitoring · Traffic Audit · Multi-Gateway Management</span>
 </p>
 
 <p align="center">
-  <a href="https://github.com/foru17/clash-master/stargazers"><img src="https://img.shields.io/github/stars/foru17/clash-master?style=flat-square&color=yellow" alt="Stars"></a>
-  <a href="https://hub.docker.com/r/foru17/clash-master"><img src="https://img.shields.io/docker/pulls/foru17/clash-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
-  <a href="https://hub.docker.com/r/foru17/clash-master"><img src="https://img.shields.io/docker/v/foru17/clash-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
-  <a href="https://github.com/foru17/clash-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/clash-master?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/foru17/neko-master/stargazers"><img src="https://img.shields.io/github/stars/foru17/neko-master?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
+  <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
+  <a href="https://github.com/foru17/neko-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/neko-master?style=flat-square&color=green" alt="License"></a>
   <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js" alt="Node.js">
 </p>
 
@@ -31,9 +31,9 @@
 >
 > This project is open-source under the MIT License. The developers assume no responsibility for any consequences resulting from the use of this software.
 
-![Clash Master Overview](./assets/clash-master-overview.png)
-![Clash Master Rules](./assets/clash-master-rules.png)
-![Clash Master Regions](./assets/clash-master-regions.png)
+![Neko Master Overview](./assets/neko-master-overview.png)
+![Neko Master Rules](./assets/neko-master-rules.png)
+![Neko Master Regions](./assets/neko-master-regions.png)
 
 ## 📋 Table of Contents
 
@@ -70,9 +70,9 @@
 
 ```yaml
 services:
-  clash-master:
-    image: foru17/clash-master:latest
-    container_name: clash-master
+  neko-master:
+    image: foru17/neko-master:latest
+    container_name: neko-master
     restart: unless-stopped
     ports:
       - "3000:3000" # Web UI
@@ -90,9 +90,9 @@ services:
 
 ```yaml
 services:
-  clash-master:
-    image: foru17/clash-master:latest
-    container_name: clash-master
+  neko-master:
+    image: foru17/neko-master:latest
+    container_name: neko-master
     restart: unless-stopped
     ports:
       - "3000:3000" # Web UI
@@ -117,20 +117,20 @@ Open <http://localhost:3000> to get started.
 ```bash
 # Minimal (only 3000)
 docker run -d \
-  --name clash-master \
+  --name neko-master \
   -p 3000:3000 \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
-  foru17/clash-master:latest
+  foru17/neko-master:latest
 
 # Real-time WS (with reverse proxy)
 docker run -d \
-  --name clash-master \
+  --name neko-master \
   -p 3000:3000 \
   -p 3002:3002 \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
-  foru17/clash-master:latest
+  foru17/neko-master:latest
 ```
 
 Open <http://localhost:3000> to get started.
@@ -147,10 +147,10 @@ Automatically detects port conflicts and configures everything:
 
 ```bash
 # Using curl
-curl -fsSL https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 
 # Or using wget
-wget -qO- https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+wget -qO- https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 ```
 
 The script will automatically:
@@ -164,8 +164,8 @@ The script will automatically:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/foru17/clash-master.git
-cd clash-master
+git clone https://github.com/foru17/neko-master.git
+cd neko-master
 
 # 2. Install dependencies
 pnpm install
@@ -178,7 +178,7 @@ Open <http://localhost:3000> to configure.
 
 ## 📖 First Use
 
-![First Use](./assets/clash-master-setup.png)
+![First Use](./assets/neko-master-setup.png)
 
 1. Open <http://localhost:3000>
 2. The **Gateway Configuration** dialog will appear on first visit
@@ -228,7 +228,7 @@ ports:
 ### Solution 3: Use One-Click Script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | bash
 ```
 
 The script will automatically detect and suggest available ports.
@@ -276,7 +276,7 @@ server {
   server_name clash.example.com;
 
   location / {
-    proxy_pass http://<clash-master-host>:3000;
+    proxy_pass http://<neko-master-host>:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -285,7 +285,7 @@ server {
   }
 
   location ^~ /_cm_ws {
-    proxy_pass http://<clash-master-host>:3002;
+    proxy_pass http://<neko-master-host>:3002;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -409,10 +409,10 @@ The difference is real-time experience: without WS, updates are polling-based (a
 
 ```bash
 # View all logs
-docker logs -f clash-master
+docker logs -f neko-master
 
 # View last 100 lines
-docker logs --tail 100 clash-master
+docker logs --tail 100 neko-master
 ```
 
 ### Q: How to backup data?
@@ -434,7 +434,7 @@ cp -r ./data ./data-backup-$(date +%Y%m%d)
 ## 📁 Project Structure
 
 ```
-clash-master/
+neko-master/
 ├── docker-compose.yml      # Docker Compose config
 ├── Dockerfile              # Docker image build
 ├── setup.sh                # One-click setup script
@@ -462,9 +462,9 @@ clash-master/
 
 Contributions are welcome!
 
-- 🐛 [Submit Bug](https://github.com/foru17/clash-master/issues/new)
-- 💡 [Request Feature](https://github.com/foru17/clash-master/issues/new)
-- 🔧 [Contribute Code](https://github.com/foru17/clash-master/pulls)
+- 🐛 [Submit Bug](https://github.com/foru17/neko-master/issues/new)
+- 💡 [Request Feature](https://github.com/foru17/neko-master/issues/new)
+- 🔧 [Contribute Code](https://github.com/foru17/neko-master/pulls)
 
 ## 📄 License
 
@@ -474,7 +474,7 @@ Contributions are welcome!
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=foru17/clash-master&type=date&legend=top-left)](https://www.star-history.com/#foru17/clash-master&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=foru17/neko-master&type=date&legend=top-left)](https://www.star-history.com/#foru17/neko-master&type=date&legend=top-left)
 
 ---
 

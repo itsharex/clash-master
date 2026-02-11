@@ -5,7 +5,7 @@ import { Server, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
-import type { ProxyStats } from "@clashmaster/shared";
+import type { ProxyStats } from "@neko-master/shared";
 
 interface TopProxiesSimpleProps {
   proxies: ProxyStats[];

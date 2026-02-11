@@ -1,4 +1,4 @@
-// OpenClash Connection Metadata
+// Gateway Connection Metadata
 export interface ConnectionMetadata {
   network: string;
   type: string;

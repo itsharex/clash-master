@@ -4,9 +4,9 @@ import React, { useMemo } from "react";
 import { Globe, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { CountryFlag } from "@/components/country-flag";
+import { CountryFlag } from "@/components/features/countries";
 import { formatBytes, formatNumber, cn } from "@/lib/utils";
-import type { CountryStats } from "@clashmaster/shared";
+import type { CountryStats } from "@neko-master/shared";
 
 interface TopCountriesSimpleProps {
   countries: CountryStats[];
