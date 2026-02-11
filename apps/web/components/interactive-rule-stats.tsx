@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
-import { Server, ChevronLeft, ChevronRight, Loader2, BarChart3, Link2, Rows3, ArrowUpDown, ArrowDown, ArrowUp, Globe, Waypoints, ChevronDown, ChevronUp } from "lucide-react";
+import { Server, ChevronLeft, ChevronRight, BarChart3, Link2, Rows3, ArrowUpDown, ArrowDown, ArrowUp, Globe, Waypoints, ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
@@ -34,10 +34,12 @@ import {
 } from "@/lib/stats-query-keys";
 import { CountryFlag } from "@/components/country-flag";
 import { Favicon } from "@/components/favicon";
+import { DomainPreview } from "@/components/domain-preview";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { DomainExpandedDetails, IPExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
 import { UnifiedRuleChainFlow } from "@/components/rule-chain-flow";
+import { InsightChartSkeleton, InsightDetailSectionSkeleton, InsightTableSkeleton, InsightThreePanelSkeleton } from "@/components/ui/insight-skeleton";
 import type { RuleStats, DomainStats, IPStats, StatsSummary } from "@clashmaster/shared";
 
 interface InteractiveRuleStatsProps {
@@ -162,10 +164,9 @@ export function InteractiveRuleStats({
   
   // Pagination states
   const [domainPage, setDomainPage] = useState(1);
-  const [domainPageSize, setDomainPageSize] = useState<PageSize>(10);
+  const [detailPageSize, setDetailPageSize] = useState<PageSize>(10);
   const [domainSearch, setDomainSearch] = useState("");
   const [ipPage, setIpPage] = useState(1);
-  const [ipPageSize, setIpPageSize] = useState<PageSize>(10);
   const [ipSearch, setIpSearch] = useState("");
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
   const [clashRules, setClashRules] = useState<ClashRulesResponse | null>(null);
@@ -518,9 +519,19 @@ export function InteractiveRuleStats({
       }),
   });
 
-  const ruleDomains: DomainStats[] = hasWsRuleDetails ? wsRuleDomains ?? [] : ruleDomainsQuery.data ?? [];
-  const ruleIPs: IPStats[] = hasWsRuleDetails ? wsRuleIPs ?? [] : ruleIPsQuery.data ?? [];
-  const loading = !!selectedRule && !hasWsRuleDetails && !ruleDomainsQuery.data && !ruleIPsQuery.data;
+  const ruleDomains: DomainStats[] = hasWsRuleDetails
+    ? wsRuleDomains ?? []
+    : ruleDomainsQuery.data ?? wsRuleDomains ?? [];
+  const ruleIPs: IPStats[] = hasWsRuleDetails
+    ? wsRuleIPs ?? []
+    : ruleIPsQuery.data ?? wsRuleIPs ?? [];
+  const hasDetailSnapshot =
+    hasWsRuleDetails ||
+    wsRuleDomains !== null ||
+    wsRuleIPs !== null ||
+    ruleDomainsQuery.data !== undefined ||
+    ruleIPsQuery.data !== undefined;
+  const loading = !!selectedRule && !hasDetailSnapshot;
 
   // Sort icon component
   const DomainSortIcon = ({ column }: { column: DomainSortKey }) => {
@@ -604,12 +615,12 @@ export function InteractiveRuleStats({
 
   const paginatedDomains = useMemo(() => {
     if (!isDomainsTab) return EMPTY_DOMAINS;
-    const start = (domainPage - 1) * domainPageSize;
-    return filteredDomains.slice(start, start + domainPageSize);
-  }, [isDomainsTab, filteredDomains, domainPage, domainPageSize]);
+    const start = (domainPage - 1) * detailPageSize;
+    return filteredDomains.slice(start, start + detailPageSize);
+  }, [isDomainsTab, filteredDomains, domainPage, detailPageSize]);
 
   const domainTotalPages = isDomainsTab
-    ? Math.max(1, Math.ceil(filteredDomains.length / domainPageSize))
+    ? Math.max(1, Math.ceil(filteredDomains.length / detailPageSize))
     : 1;
   const totalFilteredDomainTraffic = useMemo(
     () => (isDomainsTab
@@ -642,12 +653,12 @@ export function InteractiveRuleStats({
 
   const paginatedIPs = useMemo(() => {
     if (!isIPsTab) return EMPTY_IPS;
-    const start = (ipPage - 1) * ipPageSize;
-    return filteredIPs.slice(start, start + ipPageSize);
-  }, [isIPsTab, filteredIPs, ipPage, ipPageSize]);
+    const start = (ipPage - 1) * detailPageSize;
+    return filteredIPs.slice(start, start + detailPageSize);
+  }, [isIPsTab, filteredIPs, ipPage, detailPageSize]);
 
   const ipTotalPages = isIPsTab
-    ? Math.max(1, Math.ceil(filteredIPs.length / ipPageSize))
+    ? Math.max(1, Math.ceil(filteredIPs.length / detailPageSize))
     : 1;
   const totalFilteredIPTraffic = useMemo(
     () => (isIPsTab
@@ -705,13 +716,14 @@ export function InteractiveRuleStats({
 
   if (listLoading) {
     return (
-      <Card>
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-5 sm:p-6">
+            <InsightThreePanelSkeleton />
+          </CardContent>
+        </Card>
+        <InsightDetailSectionSkeleton />
+      </div>
     );
   }
 
@@ -732,9 +744,9 @@ export function InteractiveRuleStats({
   return (
     <div className="space-y-6">
       {/* Top Section: Three Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
         {/* Left: Pie Chart (3 columns) */}
-        <Card className="lg:col-span-3">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("distribution")}
@@ -819,7 +831,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Middle: Rule List (4 columns) */}
-        <Card className="lg:col-span-4">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("ruleList")}
@@ -870,7 +882,7 @@ export function InteractiveRuleStats({
                         {item.name}
                       </span>
 
-                      <span className="text-sm font-bold tabular-nums shrink-0">
+                      <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">
                         {noTraffic ? (
                           <span className="text-xs font-normal text-muted-foreground">{t("noTrafficRecord")}</span>
                         ) : formatBytes(item.value)}
@@ -894,8 +906,8 @@ export function InteractiveRuleStats({
                       {/* Stats */}
                       <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
                         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(item.download)}</span>
-                          <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(item.upload)}</span>
+                          <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
+                          <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
                           <span className="flex items-center gap-1 tabular-nums">
                             <Link2 className="w-3 h-3" />
                             {formatNumber(item.connections)}
@@ -914,7 +926,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Right: Top Domains Chart (5 columns) */}
-        <Card className="lg:col-span-5">
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -930,9 +942,7 @@ export function InteractiveRuleStats({
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="flex items-center justify-center py-8 h-[280px]">
-                <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              </div>
+              <InsightChartSkeleton />
             ) : domainChartData.length === 0 ? (
               <div className="h-[280px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
                 <BarChart3 className="h-5 w-5 text-muted-foreground/70 mb-2" />
@@ -1039,7 +1049,7 @@ export function InteractiveRuleStats({
       />
 
       {/* Bottom Section: Domain List & IP Addresses with pagination */}
-      {selectedRule && (
+      {selectedRule ? (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Simplified Tabs - no icons, no counts, like Domains page */}
           <TabsList className="glass">
@@ -1078,9 +1088,7 @@ export function InteractiveRuleStats({
 
               <CardContent className="p-0">
                 {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
+                  <InsightTableSkeleton />
                 ) : filteredDomains.length === 0 ? (
                   <div className="px-4 py-6">
                     <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
@@ -1186,9 +1194,13 @@ export function InteractiveRuleStats({
                                 {/* Domain with Favicon */}
                                 <div className="col-span-3 flex items-center gap-3 min-w-0">
                                   <Favicon domain={domain.domain} size="sm" className="shrink-0" />
-                                  <span className="font-medium text-sm truncate" title={domain.domain}>
-                                    {domain.domain}
-                                  </span>
+                                  <DomainPreview
+                                    className="flex-1"
+                                    domain={domain.domain}
+                                    unknownLabel={domainsT("unknown")}
+                                    copyLabel={domainsT("copyDomain")}
+                                    copiedLabel={domainsT("copied")}
+                                  />
                                 </div>
 
                                 {/* Proxy */}
@@ -1197,12 +1209,12 @@ export function InteractiveRuleStats({
                                 </div>
 
                                 {/* Download */}
-                                <div className="col-span-2 text-right tabular-nums text-sm">
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                                   <span className="text-blue-500">{formatBytes(domain.totalDownload)}</span>
                                 </div>
 
                                 {/* Upload */}
-                                <div className="col-span-2 text-right tabular-nums text-sm">
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                                   <span className="text-purple-500">{formatBytes(domain.totalUpload)}</span>
                                 </div>
 
@@ -1251,9 +1263,13 @@ export function InteractiveRuleStats({
                                 {/* Top: Favicon + Domain + Expand */}
                                 <div className="flex items-center gap-2.5 mb-2">
                                   <Favicon domain={domain.domain} size="sm" className="shrink-0" />
-                                  <span className="font-medium text-sm truncate flex-1" title={domain.domain}>
-                                    {domain.domain}
-                                  </span>
+                                  <DomainPreview
+                                    className="flex-1"
+                                    domain={domain.domain}
+                                    unknownLabel={domainsT("unknown")}
+                                    copyLabel={domainsT("copyDomain")}
+                                    copiedLabel={domainsT("copied")}
+                                  />
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1283,8 +1299,8 @@ export function InteractiveRuleStats({
 
                                 {/* Bottom: Stats row */}
                                 <div className="flex items-center justify-between text-xs pl-[30px]">
-                                  <span className="text-blue-500 tabular-nums">↓ {formatBytes(domain.totalDownload)}</span>
-                                  <span className="text-purple-500 tabular-nums">↑ {formatBytes(domain.totalUpload)}</span>
+                                  <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(domain.totalDownload)}</span>
+                                  <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(domain.totalUpload)}</span>
                                   <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
                                     {formatNumber(domain.totalConnections)} {domainsT("conn")}
                                   </span>
@@ -1329,7 +1345,7 @@ export function InteractiveRuleStats({
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground hover:text-foreground">
                                   <Rows3 className="h-4 w-4" />
-                                  <span>{domainPageSize} / {domainsT("page")}</span>
+                                  <span>{detailPageSize} / {domainsT("page")}</span>
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start">
@@ -1337,23 +1353,21 @@ export function InteractiveRuleStats({
                                   <DropdownMenuItem
                                     key={size}
                                     onClick={() => {
-                                      setDomainPageSize(size);
+                                      setDetailPageSize(size);
                                       setDomainPage(1);
+                                      setIpPage(1);
                                     }}
-                                    className={domainPageSize === size ? "bg-primary/10" : ""}
+                                    className={detailPageSize === size ? "bg-primary/10" : ""}
                                   >
                                     {size} / {domainsT("page")}
                                   </DropdownMenuItem>
                                 ))}
                               </DropdownMenuContent>
                             </DropdownMenu>
-                            <span className="text-sm text-muted-foreground">
-                              {domainsT("total")} {filteredDomains.length}
-                            </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs text-muted-foreground">
-                              {(domainPage - 1) * domainPageSize + 1}-{Math.min(domainPage * domainPageSize, filteredDomains.length)} / {filteredDomains.length}
+                          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">
+                            <p className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                              {(domainPage - 1) * detailPageSize + 1}-{Math.min(domainPage * detailPageSize, filteredDomains.length)} / {filteredDomains.length}
                             </p>
                             <div className="flex items-center gap-1">
                               <Button
@@ -1427,9 +1441,7 @@ export function InteractiveRuleStats({
 
               <CardContent className="p-0">
                 {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
+                  <InsightTableSkeleton />
                 ) : filteredIPs.length === 0 ? (
                   <div className="px-4 py-6">
                     <div className="min-h-[180px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
@@ -1562,12 +1574,12 @@ export function InteractiveRuleStats({
                                 </div>
 
                                 {/* Download */}
-                                <div className="col-span-2 text-right tabular-nums text-sm">
+                                <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                                   <span className="text-blue-500">{formatBytes(ip.totalDownload)}</span>
                                 </div>
 
                                 {/* Upload */}
-                                <div className="col-span-1 text-right tabular-nums text-sm">
+                                <div className="col-span-1 text-right tabular-nums text-sm whitespace-nowrap">
                                   <span className="text-purple-500">{formatBytes(ip.totalUpload)}</span>
                                 </div>
 
@@ -1656,8 +1668,8 @@ export function InteractiveRuleStats({
 
                                 {/* Bottom: Stats row */}
                                 <div className="flex items-center justify-between text-xs pl-[30px]">
-                                  <span className="text-blue-500 tabular-nums">↓ {formatBytes(ip.totalDownload)}</span>
-                                  <span className="text-purple-500 tabular-nums">↑ {formatBytes(ip.totalUpload)}</span>
+                                  <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(ip.totalDownload)}</span>
+                                  <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(ip.totalUpload)}</span>
                                   <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
                                     {formatNumber(ip.totalConnections)} {ipsT("conn")}
                                   </span>
@@ -1703,7 +1715,7 @@ export function InteractiveRuleStats({
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground hover:text-foreground">
                                   <Rows3 className="h-4 w-4" />
-                                  <span>{ipPageSize} / {ipsT("page")}</span>
+                                  <span>{detailPageSize} / {ipsT("page")}</span>
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start">
@@ -1711,23 +1723,21 @@ export function InteractiveRuleStats({
                                   <DropdownMenuItem
                                     key={size}
                                     onClick={() => {
-                                      setIpPageSize(size);
+                                      setDetailPageSize(size);
+                                      setDomainPage(1);
                                       setIpPage(1);
                                     }}
-                                    className={ipPageSize === size ? "bg-primary/10" : ""}
+                                    className={detailPageSize === size ? "bg-primary/10" : ""}
                                   >
                                     {size} / {ipsT("page")}
                                   </DropdownMenuItem>
                                 ))}
                               </DropdownMenuContent>
                             </DropdownMenu>
-                            <span className="text-sm text-muted-foreground">
-                              {ipsT("total")} {filteredIPs.length}
-                            </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs text-muted-foreground">
-                              {(ipPage - 1) * ipPageSize + 1}-{Math.min(ipPage * ipPageSize, filteredIPs.length)} / {filteredIPs.length}
+                          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">
+                            <p className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                              {(ipPage - 1) * detailPageSize + 1}-{Math.min(ipPage * detailPageSize, filteredIPs.length)} / {filteredIPs.length}
                             </p>
                             <div className="flex items-center gap-1">
                               <Button
@@ -1774,6 +1784,8 @@ export function InteractiveRuleStats({
             </Card>
           </TabsContent>
         </Tabs>
+      ) : (
+        <InsightDetailSectionSkeleton />
       )}
     </div>
   );

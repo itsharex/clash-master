@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
-  Loader2,
   Rows3,
   ArrowUpDown,
   ArrowDown,
@@ -34,9 +33,11 @@ import {
   getDomainProxyStatsQueryKey,
 } from "@/lib/stats-query-keys";
 import { Favicon } from "@/components/favicon";
+import { DomainPreview } from "@/components/domain-preview";
 import { DomainExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
+import { InsightTableSkeleton } from "@/components/ui/insight-skeleton";
 import {
   PAGE_SIZE_OPTIONS,
   getPageNumbers,
@@ -52,6 +53,8 @@ interface DomainStatsTableProps {
   loading?: boolean;
   title?: string;
   showHeader?: boolean;
+  pageSize?: PageSize;
+  onPageSizeChange?: (size: PageSize) => void;
   activeBackendId?: number;
   timeRange?: TimeRange;
   sourceIP?: string;
@@ -66,6 +69,8 @@ export function DomainStatsTable({
   loading = false,
   title,
   showHeader = true,
+  pageSize: controlledPageSize,
+  onPageSizeChange,
   activeBackendId,
   timeRange,
   sourceIP,
@@ -78,7 +83,8 @@ export function DomainStatsTable({
   const detailTimeRange = useStableTimeRange(timeRange);
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<PageSize>(10);
+  const [internalPageSize, setInternalPageSize] = useState<PageSize>(10);
+  const pageSize = controlledPageSize ?? internalPageSize;
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<DomainSortKey>("totalDownload");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -88,6 +94,18 @@ export function DomainStatsTable({
     // Context switch (backend/device/proxy/rule binding change): collapse.
     setExpandedDomain(null);
   }, [activeBackendId, sourceIP, sourceChain, richExpand]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const setEffectivePageSize = (size: PageSize) => {
+    if (onPageSizeChange) {
+      onPageSizeChange(size);
+      return;
+    }
+    setInternalPageSize(size);
+  };
 
   const expandedDomainProxyQuery = useQuery({
     queryKey: getDomainProxyStatsQueryKey(expandedDomain, activeBackendId, detailTimeRange, {
@@ -214,9 +232,7 @@ export function DomainStatsTable({
 
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <InsightTableSkeleton />
         ) : filteredDomains.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             {search ? t("noResults") : t("noData")}
@@ -301,9 +317,13 @@ export function DomainStatsTable({
                     >
                       <div className={cn(domainColumnClass, "flex items-center gap-3 min-w-0")}>
                         <Favicon domain={domain.domain} size="sm" className="shrink-0" />
-                        <span className="font-medium text-sm truncate" title={domain.domain}>
-                          {domain.domain || t("unknown")}
-                        </span>
+                        <DomainPreview
+                          className="flex-1"
+                          domain={domain.domain}
+                          unknownLabel={t("unknown")}
+                          copyLabel={t("copyDomain")}
+                          copiedLabel={t("copied")}
+                        />
                       </div>
 
                       {showProxyColumn && (
@@ -312,11 +332,11 @@ export function DomainStatsTable({
                         </div>
                       )}
 
-                      <div className="col-span-2 text-right tabular-nums text-sm">
+                      <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                         <span className="text-blue-500">{formatBytes(domain.totalDownload)}</span>
                       </div>
 
-                      <div className="col-span-2 text-right tabular-nums text-sm">
+                      <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                         <span className="text-purple-500">{formatBytes(domain.totalUpload)}</span>
                       </div>
 
@@ -361,9 +381,13 @@ export function DomainStatsTable({
                     >
                       <div className="flex items-center gap-2.5 mb-2">
                         <Favicon domain={domain.domain} size="sm" className="shrink-0" />
-                        <span className="font-medium text-sm truncate flex-1" title={domain.domain}>
-                          {domain.domain || t("unknown")}
-                        </span>
+                        <DomainPreview
+                          className="flex-1"
+                          domain={domain.domain}
+                          unknownLabel={t("unknown")}
+                          copyLabel={t("copyDomain")}
+                          copiedLabel={t("copied")}
+                        />
                         <Button
                           variant="ghost"
                           size="sm"
@@ -389,8 +413,8 @@ export function DomainStatsTable({
                       )}
 
                       <div className="flex items-center justify-between text-xs pl-[30px]">
-                        <span className="text-blue-500 tabular-nums">↓ {formatBytes(domain.totalDownload)}</span>
-                        <span className="text-purple-500 tabular-nums">↑ {formatBytes(domain.totalUpload)}</span>
+                        <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(domain.totalDownload)}</span>
+                        <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(domain.totalUpload)}</span>
                         <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
                           {formatNumber(domain.totalConnections)} {t("conn")}
                         </span>
@@ -442,7 +466,7 @@ export function DomainStatsTable({
                           <DropdownMenuItem
                             key={size}
                             onClick={() => {
-                              setPageSize(size);
+                              setEffectivePageSize(size);
                               setPage(1);
                             }}
                             className={pageSize === size ? "bg-primary/10" : ""}
@@ -452,12 +476,9 @@ export function DomainStatsTable({
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <span className="text-sm text-muted-foreground">
-                      {t("total")} {filteredDomains.length}
-                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">
+                  <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">
+                    <p className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
                       {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, filteredDomains.length)} / {filteredDomains.length}
                     </p>
                     <div className="flex items-center gap-1">

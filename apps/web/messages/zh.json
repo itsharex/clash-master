@@ -1,7 +1,7 @@
 {
   "metadata": {
     "title": "Clash Master - 流量分析",
-    "description": "Clash 实时流量统计与分析"
+    "description": "实时网络流量统计与分析"
   },
   "nav": {
     "overview": "概览",
@@ -15,7 +15,7 @@
   },
   "header": {
     "title": "Clash Master",
-    "subtitle": "现代 Clash 可视化看板"
+    "subtitle": "现代网络可视化分析面板"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -161,12 +161,15 @@
     "ipCount": "IP数",
     "proxy": "代理节点",
     "proxyTraffic": "代理节点流量明细",
-    "associatedIPs": "关联 IP 地址",
+
     "domainsCount": "个域名",
     "showing": "显示",
     "of": "共",
     "page": "页",
-    "total": "总计"
+    "total": "总计",
+    "fullDomain": "完整域名",
+    "copyDomain": "复制",
+    "copied": "已复制"
   },
   "ips": {
     "title": "热门 IP 地址",
@@ -273,7 +276,7 @@
     "title": "关于",
     "version": "版本",
     "projectName": "Clash Master",
-    "description": "现代 Clash 可视化看板",
+    "description": "现代的网络可视化分析面板",
     "github": "GitHub",
     "openSource": "开源项目",
     "license": "MIT 许可证",
@@ -326,8 +329,8 @@
   },
   "backend": {
     "title": "设置",
-    "firstTimeTitle": "配置 Clash 后端",
-    "firstTimeDescription": "请输入您的 Clash 连接信息以开始监控流量",
+    "firstTimeTitle": "配置网关后端",
+    "firstTimeDescription": "请输入您的网络网关连接信息以开始监控流量",
     "description": "管理后端连接和数据库",
     "backendsTab": "后端管理",
     "databaseTab": "数据库",

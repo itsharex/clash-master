@@ -1,7 +1,7 @@
 {
   "metadata": {
     "title": "Clash Master - Traffic Analytics",
-    "description": "Real-time traffic statistics and analytics for Clash"
+    "description": "Real-time network traffic statistics and analytics"
   },
   "nav": {
     "overview": "Overview",
@@ -15,7 +15,7 @@
   },
   "header": {
     "title": "Clash Master",
-    "subtitle": "Clash traffic analytics dashboard"
+    "subtitle": "Modern network visualization dashboard"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -162,12 +162,15 @@
     "ipCount": "IPs",
     "proxy": "Proxy",
     "proxyTraffic": "Proxy Traffic Breakdown",
-    "associatedIPs": "Associated IP Addresses",
+
     "domainsCount": "domains",
     "showing": "Showing",
     "of": "of",
     "page": "page",
-    "total": "Total"
+    "total": "Total",
+    "fullDomain": "Full domain",
+    "copyDomain": "Copy",
+    "copied": "Copied"
   },
   "ips": {
     "title": "Top IP Addresses",
@@ -274,7 +277,7 @@
     "title": "About",
     "version": "Version",
     "projectName": "Clash Master",
-    "description": "Clash traffic analytics dashboard",
+    "description": "Modern network visualization dashboard",
     "github": "GitHub",
     "openSource": "Clash Master",
     "license": "MIT License",

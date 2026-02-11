@@ -3,7 +3,11 @@
 import { useEffect, useState, useCallback, memo, useMemo } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { useTheme } from "next-themes";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Globe,
   MapPin,
@@ -47,6 +51,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { InsightThreePanelSkeleton } from "@/components/ui/insight-skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,11 +72,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  api,
-  getPresetTimeRange,
-  type TimeRange,
-} from "@/lib/api";
+import { api, getPresetTimeRange, type TimeRange } from "@/lib/api";
 import {
   getCountriesQueryKey,
   getDevicesQueryKey,
@@ -109,7 +110,16 @@ const NAV_ITEMS = [
   { id: "rules", label: "rules" },
 ];
 
-type TimePreset = "1m" | "5m" | "15m" | "30m" | "24h" | "7d" | "30d" | "today" | "custom";
+type TimePreset =
+  | "1m"
+  | "5m"
+  | "15m"
+  | "30m"
+  | "24h"
+  | "7d"
+  | "30d"
+  | "today"
+  | "custom";
 type RollingTimePreset = Exclude<TimePreset, "custom">;
 type BackendStatus = "healthy" | "unhealthy" | "unknown";
 const SUMMARY_WS_MIN_PUSH_MS = 3000;
@@ -168,6 +178,7 @@ const DomainsContent = memo(function DomainsContent({
   autoRefresh: boolean;
 }) {
   const t = useTranslations("domains");
+  const [sharedPageSize, setSharedPageSize] = useState<10 | 20 | 50 | 100>(10);
   return (
     <div className="space-y-6">
       <TopDomainsChart
@@ -184,6 +195,8 @@ const DomainsContent = memo(function DomainsContent({
             activeBackendId={activeBackendId}
             timeRange={timeRange}
             autoRefresh={autoRefresh}
+            pageSize={sharedPageSize}
+            onPageSizeChange={setSharedPageSize}
           />
         </TabsContent>
         <TabsContent value="ips" className="overflow-hidden">
@@ -191,6 +204,8 @@ const DomainsContent = memo(function DomainsContent({
             activeBackendId={activeBackendId}
             timeRange={timeRange}
             autoRefresh={autoRefresh}
+            pageSize={sharedPageSize}
+            onPageSizeChange={setSharedPageSize}
           />
         </TabsContent>
       </Tabs>
@@ -226,8 +241,7 @@ const CountriesContent = memo(function CountriesContent({
                 )}
                 onClick={() => setSortBy("traffic")}
                 title={t("sortByTraffic")}
-                aria-label={t("sortByTraffic")}
-              >
+                aria-label={t("sortByTraffic")}>
                 <BarChart3 className="w-4 h-4" />
               </Button>
               <Button
@@ -241,8 +255,7 @@ const CountriesContent = memo(function CountriesContent({
                 )}
                 onClick={() => setSortBy("connections")}
                 title={t("sortByConnections")}
-                aria-label={t("sortByConnections")}
-              >
+                aria-label={t("sortByConnections")}>
                 <Link2 className="w-4 h-4" />
               </Button>
             </div>
@@ -332,9 +345,11 @@ const DevicesContent = memo(function DevicesContent({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
+      <Card>
+        <CardContent className="p-5 sm:p-6">
+          <InsightThreePanelSkeleton />
+        </CardContent>
+      </Card>
     );
   }
 
@@ -373,7 +388,9 @@ export default function DashboardPage() {
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("overview");
-  const [timeRange, setTimeRange] = useState<TimeRange>(getPresetTimeRange("24h"));
+  const [timeRange, setTimeRange] = useState<TimeRange>(
+    getPresetTimeRange("24h"),
+  );
   const [timePreset, setTimePreset] = useState<TimePreset>("24h");
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -383,9 +400,7 @@ export default function DashboardPage() {
   const [showAboutDialog, setShowAboutDialog] = useState(false);
 
   const stableTimeRange = useStableTimeRange(timeRange);
-  const isWsSummaryTab =
-    activeTab === "overview" ||
-    activeTab === "countries";
+  const isWsSummaryTab = activeTab === "overview" || activeTab === "countries";
 
   const backendsQuery = useQuery({
     queryKey: ["backends"],
@@ -412,29 +427,32 @@ export default function DashboardPage() {
     range: stableTimeRange,
     minPushIntervalMs: SUMMARY_WS_MIN_PUSH_MS,
     enabled: wsEnabled,
-    onMessage: useCallback((stats: StatsSummary) => {
-      if (!activeBackendId) return;
-      setAutoRefreshTick((tick) => tick + 1);
-      queryClient.setQueryData(
-        getSummaryQueryKey(activeBackendId, stableTimeRange),
-        (previous) => ({
-          ...(typeof previous === "object" && previous ? previous : {}),
-          ...stats,
-        }),
-      );
-      if (stats.countryStats) {
+    onMessage: useCallback(
+      (stats: StatsSummary) => {
+        if (!activeBackendId) return;
+        setAutoRefreshTick((tick) => tick + 1);
         queryClient.setQueryData(
-          getCountriesQueryKey(activeBackendId, 50, stableTimeRange),
-          stats.countryStats,
+          getSummaryQueryKey(activeBackendId, stableTimeRange),
+          (previous) => ({
+            ...(typeof previous === "object" && previous ? previous : {}),
+            ...stats,
+          }),
         );
-      }
-      if (stats.deviceStats) {
-        queryClient.setQueryData(
-          getDevicesQueryKey(activeBackendId, 50, stableTimeRange),
-          stats.deviceStats,
-        );
-      }
-    }, [activeBackendId, queryClient, stableTimeRange]),
+        if (stats.countryStats) {
+          queryClient.setQueryData(
+            getCountriesQueryKey(activeBackendId, 50, stableTimeRange),
+            stats.countryStats,
+          );
+        }
+        if (stats.deviceStats) {
+          queryClient.setQueryData(
+            getDevicesQueryKey(activeBackendId, 50, stableTimeRange),
+            stats.deviceStats,
+          );
+        }
+      },
+      [activeBackendId, queryClient, stableTimeRange],
+    ),
   });
   const wsConnected = wsStatus === "connected";
   const wsRealtimeActive = wsEnabled && wsConnected;
@@ -493,7 +511,8 @@ export default function DashboardPage() {
 
   const backendStatusHint = useMemo(() => {
     if (effectiveSummaryError) return effectiveSummaryError;
-    if (activeBackend && !activeBackend.listening) return dashboardT("backendUnavailableHint");
+    if (activeBackend && !activeBackend.listening)
+      return dashboardT("backendUnavailableHint");
     return null;
   }, [effectiveSummaryError, activeBackend, dashboardT]);
 
@@ -556,7 +575,13 @@ export default function DashboardPage() {
     if (isFirstTime) {
       setIsFirstTime(false);
     }
-  }, [backends.length, backendsQuery.isError, backendsQuery.isFetching, backendsQuery.isLoading, isFirstTime]);
+  }, [
+    backends.length,
+    backendsQuery.isError,
+    backendsQuery.isFetching,
+    backendsQuery.isLoading,
+    isFirstTime,
+  ]);
 
   // Rolling presets: keep the time window moving.
   // Only reduce to 30s on lightweight WS tabs (overview/countries).
@@ -573,7 +598,8 @@ export default function DashboardPage() {
 
   // Fixed presets: keep HTTP polling only when WS realtime is not active.
   useEffect(() => {
-    if (!autoRefresh || isRollingTimePreset(timePreset) || wsRealtimeActive) return;
+    if (!autoRefresh || isRollingTimePreset(timePreset) || wsRealtimeActive)
+      return;
     const intervalMs = 5000;
     const interval = setInterval(() => {
       setAutoRefreshTick((tick) => tick + 1);
@@ -774,7 +800,11 @@ export default function DashboardPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => setAutoRefresh((prev) => !prev)}
-                        aria-label={autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}
+                        aria-label={
+                          autoRefresh
+                            ? dashboardT("autoRefresh")
+                            : dashboardT("paused")
+                        }
                         className={cn(
                           "h-9 w-9 rounded-full transition-colors",
                           autoRefresh
@@ -799,10 +829,14 @@ export default function DashboardPage() {
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
                       <p className="font-medium">
-                        {autoRefresh ? dashboardT("autoRefresh") : dashboardT("paused")}
+                        {autoRefresh
+                          ? dashboardT("autoRefresh")
+                          : dashboardT("paused")}
                       </p>
                       <p className="opacity-80">
-                        {autoRefresh ? dashboardT("clickToPause") : dashboardT("clickToResume")}
+                        {autoRefresh
+                          ? dashboardT("clickToPause")
+                          : dashboardT("clickToResume")}
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -837,8 +871,7 @@ export default function DashboardPage() {
                         size="icon"
                         variant="ghost"
                         aria-label={dashboardT("backendUnavailable")}
-                        className="relative h-9 w-9 text-rose-500 hover:bg-rose-500/10 hover:text-rose-500"
-                      >
+                        className="relative h-9 w-9 text-rose-500 hover:bg-rose-500/10 hover:text-rose-500">
                         <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping [animation-duration:900ms]" />
                         <AlertTriangle className="h-4 w-4" />
                       </Button>
@@ -846,8 +879,7 @@ export default function DashboardPage() {
                     <PopoverContent
                       align="end"
                       side="bottom"
-                      className="w-[240px] p-3"
-                    >
+                      className="w-[240px] p-3">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
                         <div className="min-w-0">
@@ -855,7 +887,8 @@ export default function DashboardPage() {
                             {dashboardT("backendUnavailable")}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {backendStatusHint || dashboardT("backendUnavailableHint")}
+                            {backendStatusHint ||
+                              dashboardT("backendUnavailableHint")}
                           </p>
                         </div>
                       </div>

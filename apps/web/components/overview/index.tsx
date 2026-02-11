@@ -127,7 +127,7 @@ export function OverviewTab({
   const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("minute");
   const [trendTimeRange, setTrendTimeRange] = useState<TrendTimeRange>("24h");
   const [trendLoading, setTrendLoading] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const initialLoadedRef = useRef(false);
   const requestIdRef = useRef(0);
 
@@ -336,6 +336,8 @@ export function OverviewTab({
 
   // Handle time range change with transition
   const handleTimeRangeChange = (range: TrendTimeRange) => {
+    if (range === trendTimeRange) return;
+    setTrendLoading(true);
     startTransition(() => {
       setTrendTimeRange(range);
     });
@@ -350,7 +352,7 @@ export function OverviewTab({
         timeRange={canUseTrendSelector ? trendTimeRange : undefined}
         timeRangeOptions={trendTimeOptions}
         onTimeRangeChange={canUseTrendSelector ? handleTimeRangeChange : undefined}
-        isLoading={trendLoading || isPending}
+        isLoading={trendLoading}
         emptyHint={backendStatus === "unhealthy" ? dashboardT("backendUnavailableHint") : undefined}
       />
       

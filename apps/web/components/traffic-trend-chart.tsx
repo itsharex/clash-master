@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { Activity, Clock, BarChart3 } from "lucide-react";
+import { Activity, Clock, BarChart3, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -285,12 +285,12 @@ export const TrafficTrendChart = React.memo(
         </CardHeader>
 
         <CardContent className="pt-0">
-          <div className="h-[200px] w-full">
-            {isLoading && chartData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 animate-pulse" />
-                  {t("loading")}
+          <div className="relative h-[200px] w-full">
+            {chartData.length === 0 ? (
+              <div className="absolute inset-x-0 top-0 bottom-6 flex items-center justify-center text-muted-foreground">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 shadow-sm">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span className="text-xs font-medium">{t("loading")}</span>
                 </div>
               </div>
             ) : (
@@ -364,6 +364,15 @@ export const TrafficTrendChart = React.memo(
                   />
                 </AreaChart>
               </ResponsiveContainer>
+            )}
+
+            {isLoading && chartData.length > 0 && (
+              <div className="absolute inset-x-0 top-0 bottom-6 flex items-center justify-center bg-background/35 backdrop-blur-[1px] pointer-events-none">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 shadow-sm">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span className="text-xs font-medium">{t("loading")}</span>
+                </div>
+              </div>
             )}
           </div>
         </CardContent>

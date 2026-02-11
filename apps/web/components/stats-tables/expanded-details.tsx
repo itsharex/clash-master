@@ -1,8 +1,10 @@
 "use client";
 
 import { Globe, Link2, Loader2, Server, Waypoints } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { CountryFlag } from "@/components/country-flag";
 import { Favicon } from "@/components/favicon";
+import { DomainPreview } from "@/components/domain-preview";
 import { getDomainColor, getIPGradient } from "@/lib/stats-utils";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import type { DomainStats, IPStats, ProxyTrafficStats } from "@clashmaster/shared";
@@ -398,6 +400,7 @@ export function IPExpandedDetails({
   showProxyTraffic = true,
 }: IPExpandedDetailsProps) {
   const AssociatedDomainsTitleIcon = associatedDomainsIcon === "globe" ? Globe : Link2;
+  const domainsT = useTranslations("domains");
 
   if (!richExpand) {
     return (
@@ -470,7 +473,14 @@ export function IPExpandedDetails({
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Favicon domain={domain.domain} size="sm" className="shrink-0" />
-                        <span className="text-xs font-medium truncate">{domain.domain}</span>
+                        <DomainPreview
+                          className="flex-1"
+                          triggerClassName="text-xs"
+                          domain={domain.domain}
+                          unknownLabel={domainsT("unknown")}
+                          copyLabel={domainsT("copyDomain")}
+                          copiedLabel={domainsT("copied")}
+                        />
                       </div>
                       <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
                         {percent.toFixed(1)}%

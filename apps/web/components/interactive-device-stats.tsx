@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Loader2, BarChart3, Link2, Smartphone } from "lucide-react";
+import { BarChart3, Link2, Smartphone } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell, LabelList } from "recharts";
@@ -20,7 +20,8 @@ import { keepPreviousByIdentity } from "@/lib/query-placeholder";
 import { useStatsWebSocket } from "@/lib/websocket";
 import { Favicon } from "@/components/favicon";
 import { DomainStatsTable, IPStatsTable } from "@/components/stats-tables";
-import { COLORS } from "@/lib/stats-utils";
+import { InsightChartSkeleton } from "@/components/ui/insight-skeleton";
+import { COLORS, type PageSize } from "@/lib/stats-utils";
 import type { DeviceStats, DomainStats, IPStats, StatsSummary } from "@clashmaster/shared";
 
 interface InteractiveDeviceStatsProps {
@@ -57,6 +58,7 @@ export function InteractiveDeviceStats({
   
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("domains");
+  const [detailPageSize, setDetailPageSize] = useState<PageSize>(10);
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
   const [wsDeviceDomains, setWsDeviceDomains] = useState<DomainStats[] | null>(null);
   const [wsDeviceIPs, setWsDeviceIPs] = useState<IPStats[] | null>(null);
@@ -163,9 +165,19 @@ export function InteractiveDeviceStats({
       }),
   });
 
-  const deviceDomains = hasWsDeviceDetails ? wsDeviceDomains ?? [] : deviceDomainsQuery.data ?? [];
-  const deviceIPs = hasWsDeviceDetails ? wsDeviceIPs ?? [] : deviceIPsQuery.data ?? [];
-  const loading = !!selectedDevice && !hasWsDeviceDetails && !deviceDomainsQuery.data && !deviceIPsQuery.data;
+  const deviceDomains = hasWsDeviceDetails
+    ? wsDeviceDomains ?? []
+    : deviceDomainsQuery.data ?? wsDeviceDomains ?? [];
+  const deviceIPs = hasWsDeviceDetails
+    ? wsDeviceIPs ?? []
+    : deviceIPsQuery.data ?? wsDeviceIPs ?? [];
+  const hasDetailSnapshot =
+    hasWsDeviceDetails ||
+    wsDeviceDomains !== null ||
+    wsDeviceIPs !== null ||
+    deviceDomainsQuery.data !== undefined ||
+    deviceIPsQuery.data !== undefined;
+  const loading = !!selectedDevice && !hasDetailSnapshot;
 
   const handleDeviceClick = useCallback((rawName: string) => {
     if (selectedDevice !== rawName) {
@@ -211,9 +223,9 @@ export function InteractiveDeviceStats({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
         {/* Pie Chart */}
-        <Card className="lg:col-span-3">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle>
           </CardHeader>
@@ -258,7 +270,7 @@ export function InteractiveDeviceStats({
         </Card>
 
         {/* Device List */}
-        <Card className="lg:col-span-4">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle></CardHeader>
           <CardContent className="p-3">
             <ScrollArea className="h-[280px] pr-3">
@@ -273,7 +285,7 @@ export function InteractiveDeviceStats({
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className={cn("w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0", badgeColor)}>{item.rank + 1}</span>
                         <span className="flex-1 text-sm font-medium truncate" title={item.name}>{item.name}</span>
-                        <span className="text-sm font-bold tabular-nums shrink-0">{formatBytes(item.value)}</span>
+                        <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">{formatBytes(item.value)}</span>
                       </div>
                       <div className="pl-7 space-y-1">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
@@ -282,8 +294,8 @@ export function InteractiveDeviceStats({
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
                           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                            <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(item.download)}</span>
-                            <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(item.upload)}</span>
+                            <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
+                            <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
                             <span className="flex items-center gap-1 tabular-nums"><Link2 className="w-3 h-3" />{formatNumber(item.connections)}</span>
                           </div>
                           <span className="tabular-nums">{percentage.toFixed(1)}%</span>
@@ -298,7 +310,7 @@ export function InteractiveDeviceStats({
         </Card>
 
         {/* Top Domains Chart */}
-        <Card className="lg:col-span-5">
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2"><BarChart3 className="h-4 w-4" />{domainsT("title")}</CardTitle>
@@ -306,7 +318,7 @@ export function InteractiveDeviceStats({
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            {loading ? (<div className="h-[280px] flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            {loading ? (<InsightChartSkeleton />
             ) : domainChartData.length === 0 ? (
               <div className="h-[280px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
                 <BarChart3 className="h-5 w-5 text-muted-foreground/70 mb-2" />
@@ -349,6 +361,8 @@ export function InteractiveDeviceStats({
             <DomainStatsTable
               domains={deviceDomains}
               loading={loading}
+              pageSize={detailPageSize}
+              onPageSizeChange={setDetailPageSize}
               activeBackendId={activeBackendId}
               timeRange={timeRange}
               sourceIP={selectedDevice ?? undefined}
@@ -359,6 +373,8 @@ export function InteractiveDeviceStats({
             <IPStatsTable
               ips={deviceIPs}
               loading={loading}
+              pageSize={detailPageSize}
+              onPageSizeChange={setDetailPageSize}
               activeBackendId={activeBackendId}
               timeRange={timeRange}
               sourceIP={selectedDevice ?? undefined}

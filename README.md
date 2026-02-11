@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <b>优雅且现代化的 OpenClash 流量可视化分析工具</b><br>
-  <span>实时监控 · 多维度分析 · 多后端管理</span>
+  <b>优雅且现代化的网络可视化分析面板</b><br>
+  <span>实时监控 · 流量审计 · 多网关管理</span>
 </p>
 
 <p align="center">
@@ -21,6 +21,15 @@
   <b>简体中文</b> •
   <a href="./README.en.md">English</a>
 </p>
+
+> [!IMPORTANT]
+> **免责声明 / Disclaimer**
+>
+> 本项目仅为 **网络流量可视化与分析工具**，旨在帮助用户通过可视化仪表盘 (Dashboard) 审计本地网络流量、发现异常连接请求、优化网络配置。
+>
+> 本项目 **不提供** 任何网络接入服务、代理节点订阅或跨网络连接功能。所有数据均来源于用户自有的网络网关，数据采集仅在用户本地网络内进行。
+>
+> 本项目遵循 MIT 协议开源，不对因使用本软件产生的任何后果承担责任。请在合规范围内使用。
 
 ![Clash Master Overview](./assets/clash-master-overview.png)
 ![Clash Master Rules](./assets/clash-master-rules.png)
@@ -71,8 +80,8 @@ services:
     container_name: clash-master
     restart: unless-stopped
     ports:
-      - "3000:3000"           # Web UI
-      - "3002:3002"           # WebSocket（供 Nginx / Tunnel 转发）
+      - "3000:3000" # Web UI
+      - "3002:3002" # WebSocket（供 Nginx / Tunnel 转发）
     volumes:
       - ./data:/app/data
     environment:
@@ -157,16 +166,16 @@ pnpm dev
 ![首次使用](./assets/clash-master-setup.png)
 
 1. 打开 <http://localhost:3000>
-2. 首次访问会弹出**后端配置**对话框
-3. 填写 OpenClash 连接信息：
-   - **名称**: 自定义名称（如 "Home"）
-   - **地址**: OpenClash 后端地址（如 `192.168.101.1`）
-   - **端口**: OpenClash 后端端口（如 `9090`）
+2. 首次访问会弹出**网关配置**对话框
+3. 填写网络网关（如 OpenClash）连接信息：
+   - **名称**: 自定义名称（如 "Home Gateway"）
+   - **地址**: 网关后端地址（如 `192.168.101.1`）
+   - **端口**: 网关后端端口（如 `9090`）
    - **Token**: 如果配置了 Secret 则填写，否则留空
 4. 点击「添加后端」保存配置
-5. 系统将自动开始采集数据
+5. 系统将自动开始采集并分析流量数据
 
-> 💡 **获取 OpenClash 地址**: 进入 OpenClash 插件 → 打开「外部控制」→ 复制地址
+> 💡 **获取网关地址**: 进入网关控制面板（如 OpenClash） → 打开「外部控制」→ 复制 API 地址
 
 ## 🔧 端口冲突解决
 
@@ -213,25 +222,25 @@ curl -fsSL https://raw.githubusercontent.com/foru17/clash-master/main/setup.sh |
 
 ### 端口说明
 
-| 端口 |   用途    | 外部必需 | 说明 |
-| :--: | :-------: | :------: | :--- |
-| 3000 | Web 界面  |   ✅     | 前端访问入口 |
-| 3001 | API 接口  |   可选   | 前端默认同域 `/api`，一般无需暴露 |
+| 端口 |   用途    | 外部必需 | 说明                                             |
+| :--: | :-------: | :------: | :----------------------------------------------- |
+| 3000 | Web 界面  |    ✅    | 前端访问入口                                     |
+| 3001 | API 接口  |   可选   | 前端默认同域 `/api`，一般无需暴露                |
 | 3002 | WebSocket |   可选   | 实时推送端口，建议仅给反代层转发，不直接公网暴露 |
 
 ### 环境变量说明（Docker）
 
-| 变量名 | 默认值 | 作用 | 何时设置 |
-| :-- | :-- | :-- | :-- |
-| `WEB_PORT` | `3000` | 前端服务监听端口（容器内） | 一般不用改 |
-| `API_PORT` | `3001` | API 服务监听端口（容器内） | 一般不用改 |
-| `COLLECTOR_WS_PORT` | `3002` | WS 服务监听端口（容器内） | 一般不用改 |
-| `DB_PATH` | `/app/data/stats.db` | SQLite 数据文件路径 | 自定义数据目录时 |
-| `WEB_EXTERNAL_PORT` | `3000` | 运行时注入给前端显示/拼接用的外部 Web 端口 | 外部映射端口变更时 |
-| `API_EXTERNAL_PORT` | `3001` | 运行时注入给前端的 API 外部端口 | 仅直连 API 时 |
-| `WS_EXTERNAL_PORT` | `3002` | 运行时注入给前端的 WS 外部端口 | 仅直连 WS 时 |
-| `NEXT_PUBLIC_API_URL` | 空 | 强制前端 API 基地址（覆盖默认 `/api`） | API 不走同域时 |
-| `NEXT_PUBLIC_WS_URL` | 自动 `/_cm_ws` | 自定义前端 WS 地址（覆盖默认） | 仅在你想改默认路径/域名时 |
+| 变量名                | 默认值               | 作用                                       | 何时设置                  |
+| :-------------------- | :------------------- | :----------------------------------------- | :------------------------ |
+| `WEB_PORT`            | `3000`               | 前端服务监听端口（容器内）                 | 一般不用改                |
+| `API_PORT`            | `3001`               | API 服务监听端口（容器内）                 | 一般不用改                |
+| `COLLECTOR_WS_PORT`   | `3002`               | WS 服务监听端口（容器内）                  | 一般不用改                |
+| `DB_PATH`             | `/app/data/stats.db` | SQLite 数据文件路径                        | 自定义数据目录时          |
+| `WEB_EXTERNAL_PORT`   | `3000`               | 运行时注入给前端显示/拼接用的外部 Web 端口 | 外部映射端口变更时        |
+| `API_EXTERNAL_PORT`   | `3001`               | 运行时注入给前端的 API 外部端口            | 仅直连 API 时             |
+| `WS_EXTERNAL_PORT`    | `3002`               | 运行时注入给前端的 WS 外部端口             | 仅直连 WS 时              |
+| `NEXT_PUBLIC_API_URL` | 空                   | 强制前端 API 基地址（覆盖默认 `/api`）     | API 不走同域时            |
+| `NEXT_PUBLIC_WS_URL`  | 自动 `/_cm_ws`       | 自定义前端 WS 地址（覆盖默认）             | 仅在你想改默认路径/域名时 |
 
 ### API / WS 地址解析优先级
 

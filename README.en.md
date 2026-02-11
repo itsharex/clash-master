@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <b>A more beautiful and modern web application that lets you visualize and manage your Clash network traffic</b><br>
-  <span>Real-time Monitoring · Multi-dimensional Analysis · Multi-Backend Management</span>
+  <b>Modern network visualization dashboard</b><br>
+  <span>Real-time Monitoring · Traffic Audit · Multi-Gateway Management</span>
 </p>
 
 <p align="center">
@@ -21,6 +21,15 @@
   <a href="./README.md">简体中文</a> •
   <b>English</b>
 </p>
+
+> [!IMPORTANT]
+> **Disclaimer**
+>
+> This project is a **Network Traffic Visualization & Analysis Tool** designed to visualize connection states and traffic flows of local network devices.
+>
+> This project **does NOT provide** any internet access services, proxy subscriptions, or cross-network connectivity features. All data is derived from the user's own network gateway; this project solely performs data collection and visualization.
+>
+> This project is open-source under the MIT License. The developers assume no responsibility for any consequences resulting from the use of this software.
 
 ![Clash Master Overview](./assets/clash-master-overview.png)
 ![Clash Master Rules](./assets/clash-master-rules.png)
@@ -172,16 +181,16 @@ Open <http://localhost:3000> to configure.
 ![First Use](./assets/clash-master-setup.png)
 
 1. Open <http://localhost:3000>
-2. The **Backend Configuration** dialog will appear on first visit
-3. Fill in your OpenClash connection info:
-   - **Name**: Custom name (e.g., "Home")
-   - **Host**: OpenClash backend address (e.g., `192.168.101.1`)
-   - **Port**: OpenClash backend port (e.g., `9090`)
+2. The **Gateway Configuration** dialog will appear on first visit
+3. Fill in your network gateway (e.g., OpenClash) connection info:
+   - **Name**: Custom name (e.g., "Home Gateway")
+   - **Host**: Gateway backend address (e.g., `192.168.101.1`)
+   - **Port**: Gateway backend port (e.g., `9090`)
    - **Token**: Fill if Secret is configured, otherwise leave empty
 4. Click "Add Backend" to save
-5. The system will automatically start collecting data
+5. The system will automatically start collecting and analyzing traffic data
 
-> 💡 **Get OpenClash Address**: OpenClash Plugin → Enable "External Control" → Copy address
+> 💡 **Get Gateway Address**: Go to your gateway control panel (e.g., OpenClash) → Enable "External Control" → Copy API address
 
 ## 🔧 Port Conflict Resolution
 

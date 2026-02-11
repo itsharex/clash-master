@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Loader2, BarChart3, Link2, Waypoints } from "lucide-react";
+import { BarChart3, Link2, Waypoints } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Cell as BarCell, LabelList } from "recharts";
@@ -22,7 +22,8 @@ import {
 } from "@/lib/stats-query-keys";
 import { Favicon } from "@/components/favicon";
 import { DomainStatsTable, IPStatsTable } from "@/components/stats-tables";
-import { COLORS } from "@/lib/stats-utils";
+import { InsightChartSkeleton, InsightThreePanelSkeleton } from "@/components/ui/insight-skeleton";
+import { COLORS, type PageSize } from "@/lib/stats-utils";
 import type { DomainStats, IPStats, ProxyStats, StatsSummary } from "@clashmaster/shared";
 
 interface InteractiveProxyStatsProps {
@@ -92,6 +93,7 @@ export function InteractiveProxyStats({
   
   const [selectedProxy, setSelectedProxy] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("domains");
+  const [detailPageSize, setDetailPageSize] = useState<PageSize>(10);
   const [showDomainBarLabels, setShowDomainBarLabels] = useState(true);
   const [wsProxyDomains, setWsProxyDomains] = useState<DomainStats[] | null>(null);
   const [wsProxyIPs, setWsProxyIPs] = useState<IPStats[] | null>(null);
@@ -199,9 +201,19 @@ export function InteractiveProxyStats({
       }),
   });
 
-  const proxyDomains = hasWsProxyDetails ? wsProxyDomains ?? [] : proxyDomainsQuery.data ?? [];
-  const proxyIPs = hasWsProxyDetails ? wsProxyIPs ?? [] : proxyIPsQuery.data ?? [];
-  const loading = !!selectedProxy && !hasWsProxyDetails && !proxyDomainsQuery.data && !proxyIPsQuery.data;
+  const proxyDomains = hasWsProxyDetails
+    ? wsProxyDomains ?? []
+    : proxyDomainsQuery.data ?? wsProxyDomains ?? [];
+  const proxyIPs = hasWsProxyDetails
+    ? wsProxyIPs ?? []
+    : proxyIPsQuery.data ?? wsProxyIPs ?? [];
+  const hasDetailSnapshot =
+    hasWsProxyDetails ||
+    wsProxyDomains !== null ||
+    wsProxyIPs !== null ||
+    proxyDomainsQuery.data !== undefined ||
+    proxyIPsQuery.data !== undefined;
+  const loading = !!selectedProxy && !hasDetailSnapshot;
 
   const handleProxyClick = useCallback((rawName: string) => {
     if (selectedProxy !== rawName) {
@@ -235,9 +247,7 @@ export function InteractiveProxyStats({
     return (
       <Card>
         <CardContent className="p-5 sm:p-6">
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <InsightThreePanelSkeleton />
         </CardContent>
       </Card>
     );
@@ -259,9 +269,9 @@ export function InteractiveProxyStats({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
         {/* Pie Chart */}
-        <Card className="lg:col-span-3">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle>
           </CardHeader>
@@ -313,7 +323,7 @@ export function InteractiveProxyStats({
         </Card>
 
         {/* Proxy List */}
-        <Card className="lg:col-span-4">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle></CardHeader>
           <CardContent className="p-3">
             <ScrollArea className="h-[280px] pr-3">
@@ -329,7 +339,7 @@ export function InteractiveProxyStats({
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className={cn("w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0", badgeColor)}>{item.rank + 1}</span>
                         <span className="emoji-flag-font flex-1 text-sm font-medium truncate" title={rawDisplayName}>{rawDisplayName}</span>
-                        <span className="text-sm font-bold tabular-nums shrink-0">{formatBytes(item.value)}</span>
+                        <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">{formatBytes(item.value)}</span>
                       </div>
                       <div className="pl-7 space-y-1">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
@@ -338,8 +348,8 @@ export function InteractiveProxyStats({
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
                           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                            <span className="text-blue-500 dark:text-blue-400">↓ {formatBytes(item.download)}</span>
-                            <span className="text-purple-500 dark:text-purple-400">↑ {formatBytes(item.upload)}</span>
+                            <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
+                            <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
                             <span className="flex items-center gap-1 tabular-nums"><Link2 className="w-3 h-3" />{formatNumber(item.connections)}</span>
                           </div>
                           <span className="tabular-nums">{percentage.toFixed(1)}%</span>
@@ -354,7 +364,7 @@ export function InteractiveProxyStats({
         </Card>
 
         {/* Top Domains Chart */}
-        <Card className="lg:col-span-5">
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2"><BarChart3 className="h-4 w-4" />{domainsT("title")}</CardTitle>
@@ -367,7 +377,7 @@ export function InteractiveProxyStats({
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            {loading ? (<div className="h-[280px] flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            {loading ? (<InsightChartSkeleton />
             ) : domainChartData.length === 0 ? (
               <div className="h-[280px] rounded-xl border border-dashed border-border/60 bg-card/30 px-4 py-5 flex flex-col items-center justify-center text-center">
                 <BarChart3 className="h-5 w-5 text-muted-foreground/70 mb-2" />
@@ -410,6 +420,8 @@ export function InteractiveProxyStats({
             <DomainStatsTable
               domains={proxyDomains}
               loading={loading}
+              pageSize={detailPageSize}
+              onPageSizeChange={setDetailPageSize}
               activeBackendId={activeBackendId}
               timeRange={timeRange}
               sourceChain={selectedProxy}
@@ -422,6 +434,8 @@ export function InteractiveProxyStats({
             <IPStatsTable
               ips={proxyIPs}
               loading={loading}
+              pageSize={detailPageSize}
+              onPageSizeChange={setDetailPageSize}
               activeBackendId={activeBackendId}
               timeRange={timeRange}
               sourceChain={selectedProxy}

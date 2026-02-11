@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Search, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Rows3, ChevronDown, ChevronUp, Server, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Search, ArrowUpDown, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Rows3, ChevronDown, ChevronUp, Server } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { InsightTableSkeleton } from "@/components/ui/insight-skeleton";
 import { Favicon } from "@/components/favicon";
+import { DomainPreview } from "@/components/domain-preview";
 import { DomainExpandedDetails } from "@/components/stats-tables/expanded-details";
 import { ProxyChainBadge } from "@/components/proxy-chain-badge";
 import { ExpandReveal } from "@/components/ui/expand-reveal";
@@ -32,6 +34,8 @@ interface DomainsTableProps {
   activeBackendId?: number;
   timeRange?: TimeRange;
   autoRefresh?: boolean;
+  pageSize?: PageSize;
+  onPageSizeChange?: (size: PageSize) => void;
 }
 
 type SortKey = "domain" | "totalDownload" | "totalUpload" | "totalConnections" | "lastSeen";
@@ -41,8 +45,27 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 type PageSize = typeof PAGE_SIZE_OPTIONS[number];
 const DETAIL_QUERY_STALE_MS = 30_000;
 const DOMAINS_WS_MIN_PUSH_MS = 3_000;
+type DomainsPageQueryState = {
+  offset: number;
+  limit: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  search?: string;
+};
+type DomainsPageState = {
+  data: DomainStats[];
+  total: number;
+  query: DomainsPageQueryState;
+  backendId?: number;
+};
 
-export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }: DomainsTableProps) {
+export function DomainsTable({
+  activeBackendId,
+  timeRange,
+  autoRefresh = true,
+  pageSize: controlledPageSize,
+  onPageSizeChange,
+}: DomainsTableProps) {
   const t = useTranslations("domains");
   const stableTimeRange = useStableTimeRange(timeRange);
   const detailTimeRange = stableTimeRange;
@@ -51,9 +74,17 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
   const [sortKey, setSortKey] = useState<SortKey>("totalDownload");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<PageSize>(10);
+  const [internalPageSize, setInternalPageSize] = useState<PageSize>(10);
+  const pageSize = controlledPageSize ?? internalPageSize;
+  const setEffectivePageSize = useCallback((size: PageSize) => {
+    if (onPageSizeChange) {
+      onPageSizeChange(size);
+      return;
+    }
+    setInternalPageSize(size);
+  }, [onPageSizeChange]);
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
-  const [wsDomainsPage, setWsDomainsPage] = useState<{ data: DomainStats[]; total: number } | null>(null);
+  const [wsDomainsPage, setWsDomainsPage] = useState<DomainsPageState | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageOffset = (currentPage - 1) * pageSize;
   const wsPageSearch = debouncedSearch || undefined;
@@ -75,26 +106,29 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
       const query = stats.domainsPageQuery;
       const page = stats.domainsPage;
       if (!page || !query) return;
-      if (query.offset !== pageOffset || query.limit !== pageSize) return;
-      if ((query.sortBy || "totalDownload") !== sortKey) return;
-      if ((query.sortOrder || "desc") !== sortOrder) return;
-      if ((query.search || undefined) !== wsPageSearch) return;
-      setWsDomainsPage(page);
-    }, [pageOffset, pageSize, sortKey, sortOrder, wsPageSearch]),
+      setWsDomainsPage({
+        data: page.data,
+        total: page.total,
+        query: {
+          offset: query.offset,
+          limit: query.limit,
+          sortBy: query.sortBy || "totalDownload",
+          sortOrder: query.sortOrder === "asc" ? "asc" : "desc",
+          search: query.search || undefined,
+        },
+        backendId: activeBackendId,
+      });
+    }, [activeBackendId]),
   });
 
-  useEffect(() => {
-    setWsDomainsPage(null);
-  }, [
-    activeBackendId,
-    stableTimeRange?.start,
-    stableTimeRange?.end,
-    pageOffset,
-    pageSize,
-    sortKey,
-    sortOrder,
-    wsPageSearch,
-  ]);
+  const wsDomainsPageMatchesCurrent =
+    wsDomainsPage !== null &&
+    wsDomainsPage.backendId === activeBackendId &&
+    wsDomainsPage.query.offset === pageOffset &&
+    wsDomainsPage.query.limit === pageSize &&
+    (wsDomainsPage.query.sortBy || "totalDownload") === sortKey &&
+    (wsDomainsPage.query.sortOrder || "desc") === sortOrder &&
+    (wsDomainsPage.query.search || undefined) === wsPageSearch;
 
   // Debounce search input
   useEffect(() => {
@@ -127,16 +161,17 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
         start: stableTimeRange?.start,
         end: stableTimeRange?.end,
       }),
-    enabled: !!activeBackendId && wsPageStatus !== "connected",
+    enabled:
+      !!activeBackendId &&
+      (!wsPageEnabled || wsPageStatus !== "connected" || !wsDomainsPageMatchesCurrent),
     placeholderData: keepPreviousData,
   });
 
-  const hasWsDomainsPage = wsPageEnabled && wsPageStatus === "connected" && wsDomainsPage !== null;
-  const data = hasWsDomainsPage ? wsDomainsPage.data : domainsQuery.data?.data ?? [];
-  const total = hasWsDomainsPage ? wsDomainsPage.total : domainsQuery.data?.total ?? 0;
-  const loading =
-    (wsPageStatus === "connected" && wsDomainsPage === null) ||
-    (!hasWsDomainsPage && domainsQuery.isLoading && !domainsQuery.data);
+  const hasWsDomainsPage =
+    wsPageEnabled && wsPageStatus === "connected" && wsDomainsPageMatchesCurrent;
+  const data = hasWsDomainsPage ? wsDomainsPage!.data : domainsQuery.data?.data ?? [];
+  const total = hasWsDomainsPage ? wsDomainsPage!.total : domainsQuery.data?.total ?? 0;
+  const loading = !hasWsDomainsPage && domainsQuery.isLoading && !domainsQuery.data;
 
   useEffect(() => {
     // Backend switch means a different data universe, collapse safely.
@@ -192,7 +227,7 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
   };
 
   const handlePageSizeChange = (size: PageSize) => {
-    setPageSize(size);
+    setEffectivePageSize(size);
     setCurrentPage(1);
   };
 
@@ -330,9 +365,7 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
       {/* Table Body */}
       <div className="divide-y divide-border/30 min-h-[300px]">
         {loading && data.length === 0 ? (
-          <div className="px-5 py-12 text-center text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-          </div>
+          <InsightTableSkeleton />
         ) : data.length === 0 ? (
           <div className="px-5 py-12 text-center text-muted-foreground">
             {t("noResults")}
@@ -356,9 +389,12 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
                   <div className="col-span-3 flex items-center gap-3 min-w-0">
                     <Favicon domain={domain.domain} size="sm" className="shrink-0" />
                     <div className="min-w-0">
-                      <p className="font-medium truncate text-sm">
-                        {domain.domain || t("unknown")}
-                      </p>
+                      <DomainPreview
+                        domain={domain.domain}
+                        unknownLabel={t("unknown")}
+                        copyLabel={t("copyDomain")}
+                        copiedLabel={t("copied")}
+                      />
                     </div>
                   </div>
 
@@ -368,12 +404,12 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
                   </div>
 
                   {/* Download */}
-                  <div className="col-span-2 text-right tabular-nums text-sm">
+                  <div className="col-span-2 text-right tabular-nums text-sm whitespace-nowrap">
                     <span className="text-blue-500">{formatBytes(domain.totalDownload)}</span>
                   </div>
 
                   {/* Upload */}
-                  <div className="col-span-1 text-right tabular-nums text-sm">
+                  <div className="col-span-1 text-right tabular-nums text-sm whitespace-nowrap">
                     <span className="text-purple-500">{formatBytes(domain.totalUpload)}</span>
                   </div>
 
@@ -430,9 +466,12 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
                   <div className="flex items-center gap-2.5 mb-2">
                     <Favicon domain={domain.domain} size="sm" className="shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {domain.domain || t("unknown")}
-                      </p>
+                      <DomainPreview
+                        domain={domain.domain}
+                        unknownLabel={t("unknown")}
+                        copyLabel={t("copyDomain")}
+                        copiedLabel={t("copied")}
+                      />
                     </div>
                     <Button
                       variant="ghost"
@@ -463,8 +502,8 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
 
                   {/* Row 3: Traffic stats - compact layout */}
                   <div className="flex items-center gap-3 text-[11px] pl-[30px]">
-                    <span className="text-blue-500 tabular-nums">↓ {formatBytes(domain.totalDownload)}</span>
-                    <span className="text-purple-500 tabular-nums">↑ {formatBytes(domain.totalUpload)}</span>
+                    <span className="text-blue-500 tabular-nums whitespace-nowrap">↓ {formatBytes(domain.totalDownload)}</span>
+                    <span className="text-purple-500 tabular-nums whitespace-nowrap">↑ {formatBytes(domain.totalUpload)}</span>
                     <span className="text-muted-foreground tabular-nums ml-auto">
                       {formatNumber(domain.totalConnections)} {t("conn")}
                     </span>
@@ -525,17 +564,14 @@ export function DomainsTable({ activeBackendId, timeRange, autoRefresh = true }:
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <span className="text-sm text-muted-foreground">
-                {t("total")} {total}
-              </span>
             </div>
 
             {/* Pagination info and controls */}
-            <div className="flex items-center gap-2 sm:gap-3">
-              <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
+            <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-3">
+              <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block whitespace-nowrap shrink-0">
                 {t("showing")} {Math.min((currentPage - 1) * pageSize + 1, total)} - {Math.min(currentPage * pageSize, total)} {t("of")} {total}
               </p>
-              <p className="text-xs text-muted-foreground sm:hidden">
+              <p className="text-xs text-muted-foreground sm:hidden whitespace-nowrap shrink-0">
                 {Math.min((currentPage - 1) * pageSize + 1, total)}-{Math.min(currentPage * pageSize, total)} / {total}
               </p>
 
