@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <b>Modern Network Traffic Analytics</b><br>
-  <span>Real-time Monitoring · Traffic Audit · Multi-Gateway Management</span>
+  <b>See your network traffic clearly.</b><br>
+  <span>Real-time monitoring · Traffic auditing · Multi-gateway support</span>
 </p>
 
 <p align="center">
@@ -14,26 +14,32 @@
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
   <a href="https://github.com/foru17/neko-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/neko-master?style=flat-square&color=green" alt="License"></a>
-  <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js" alt="Node.js">
-</p>
-
-<p align="center">
-  <a href="./README.md">简体中文</a> •
-  <b>English</b>
+  <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
 </p>
 
 > [!IMPORTANT]
 > **Disclaimer**
 >
-> This project is a **Network Traffic Visualization & Analysis Tool** designed to visualize connection states and traffic flows of local network devices.
+> This project is a traffic analysis and visualization tool
+> for local gateway environments.
 >
-> This project **does NOT provide** any internet access services, proxy subscriptions, or cross-network connectivity features. All data is derived from the user's own network gateway; this project solely performs data collection and visualization.
+> It does not provide any network access service,
+> proxy subscription, or cross-network connectivity.
+> All data is collected from the user's own network environment.
 >
-> This project is open-source under the MIT License. The developers assume no responsibility for any consequences resulting from the use of this software.
+> Please use this software in compliance with applicable laws and regulations.
 
 ![Neko Master Overview](./assets/neko-master-overview.png)
 ![Neko Master Rules](./assets/neko-master-rules.png)
 ![Neko Master Regions](./assets/neko-master-regions.png)
+
+## About the Name
+
+**Neko** (ねこ) means _cat_ in Japanese.  
+Pronounced **/ˈneɪkoʊ/** (NEH-ko).
+
+Like a cat, Neko Master observes network traffic quietly and precisely.  
+It is a lightweight analytics dashboard designed for modern gateway environments.
 
 ## 📋 Table of Contents
 
@@ -237,25 +243,25 @@ The script will automatically detect and suggest available ports.
 
 ### Ports
 
-| Port |  Purpose  | External Required | Description |
-| :--: | :-------: | :---------------: | :---------- |
-| 3000 |  Web UI   |        ✅         | Frontend entry point |
-| 3001 |    API    |       Optional     | Frontend uses same-origin `/api` by default; usually no external exposure needed |
-| 3002 | WebSocket |       Optional     | Real-time push endpoint; recommended to forward via reverse proxy/tunnel |
+| Port |  Purpose  | External Required | Description                                                                      |
+| :--: | :-------: | :---------------: | :------------------------------------------------------------------------------- |
+| 3000 |  Web UI   |        ✅         | Frontend entry point                                                             |
+| 3001 |    API    |     Optional      | Frontend uses same-origin `/api` by default; usually no external exposure needed |
+| 3002 | WebSocket |     Optional      | Real-time push endpoint; recommended to forward via reverse proxy/tunnel         |
 
 ### Environment Variables (Docker)
 
-| Variable | Default | Purpose | When to set |
-| :-- | :-- | :-- | :-- |
-| `WEB_PORT` | `3000` | Web service listen port (inside container) | Usually unchanged |
-| `API_PORT` | `3001` | API service listen port (inside container) | Usually unchanged |
-| `COLLECTOR_WS_PORT` | `3002` | WS service listen port (inside container) | Usually unchanged |
-| `DB_PATH` | `/app/data/stats.db` | SQLite data path | Custom data path |
-| `WEB_EXTERNAL_PORT` | `3000` | Runtime-exposed external web port | When external mapping changes |
-| `API_EXTERNAL_PORT` | `3001` | Runtime-exposed external API port | Only for direct API access |
-| `WS_EXTERNAL_PORT` | `3002` | Runtime-exposed external WS port | Only for direct WS access |
-| `NEXT_PUBLIC_API_URL` | empty | Override frontend API base URL | When API is not same-origin |
-| `NEXT_PUBLIC_WS_URL` | auto `/_cm_ws` | Override frontend WS URL | Only if you want custom WS path/host |
+| Variable              | Default              | Purpose                                    | When to set                          |
+| :-------------------- | :------------------- | :----------------------------------------- | :----------------------------------- |
+| `WEB_PORT`            | `3000`               | Web service listen port (inside container) | Usually unchanged                    |
+| `API_PORT`            | `3001`               | API service listen port (inside container) | Usually unchanged                    |
+| `COLLECTOR_WS_PORT`   | `3002`               | WS service listen port (inside container)  | Usually unchanged                    |
+| `DB_PATH`             | `/app/data/stats.db` | SQLite data path                           | Custom data path                     |
+| `WEB_EXTERNAL_PORT`   | `3000`               | Runtime-exposed external web port          | When external mapping changes        |
+| `API_EXTERNAL_PORT`   | `3001`               | Runtime-exposed external API port          | Only for direct API access           |
+| `WS_EXTERNAL_PORT`    | `3002`               | Runtime-exposed external WS port           | Only for direct WS access            |
+| `NEXT_PUBLIC_API_URL` | empty                | Override frontend API base URL             | When API is not same-origin          |
+| `NEXT_PUBLIC_WS_URL`  | auto `/_cm_ws`       | Override frontend WS URL                   | Only if you want custom WS path/host |
 
 ### API / WS Resolution Priority
 
@@ -273,7 +279,7 @@ Recommended approach: keep Web and WS under the same domain, with path routing:
 ```nginx
 server {
   listen 443 ssl http2;
-  server_name clash.example.com;
+  server_name neko.example.com;
 
   location / {
     proxy_pass http://<neko-master-host>:3000;
@@ -315,10 +321,10 @@ tunnel: <your-tunnel-name-or-id>
 credentials-file: /path/to/<credentials>.json
 
 ingress:
-  - hostname: clash.example.com
+  - hostname: neko.example.com
     path: /_cm_ws*
     service: http://localhost:3002
-  - hostname: clash.example.com
+  - hostname: neko.example.com
     path: /*
     service: http://localhost:3000
   - service: http_status:404

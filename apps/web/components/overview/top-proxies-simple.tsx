@@ -5,6 +5,7 @@ import { Server, ArrowRight, BarChart3, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes, formatNumber } from "@/lib/utils";
+import { useIsWindows } from "@/lib/hooks/use-is-windows";
 import type { ProxyStats } from "@neko-master/shared";
 
 interface TopProxiesSimpleProps {
@@ -31,6 +32,7 @@ export const TopProxiesSimple = React.memo(
     onViewAll,
   }: TopProxiesSimpleProps) {
     const t = useTranslations("topProxies");
+    const isWindows = useIsWindows();
 
     const sortedProxies = useMemo(() => {
       if (!proxies?.length) return [];
@@ -137,7 +139,7 @@ export const TopProxiesSimple = React.memo(
                   </span>
 
                   <span
-                    className="emoji-flag-font flex-1 text-sm font-medium truncate"
+                    className={cn("flex-1 text-sm font-medium truncate", isWindows && "emoji-flag-font")}
                     title={proxyItem.chain}>
                     {displayName || proxyItem.chain}
                   </span>

@@ -1,7 +1,7 @@
 {
   "metadata": {
     "title": "Neko Master - Network Visualization",
-    "description": "Modern Network Traffic Analytics"
+    "description": "Modern traffic analytics for edge gateways"
   },
   "nav": {
     "overview": "Overview",
@@ -15,7 +15,7 @@
   },
   "header": {
     "title": "Neko Master",
-    "subtitle": "Modern Network Traffic Analytics"
+    "subtitle": "Modern traffic analytics for edge gateways"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -277,7 +277,7 @@
     "title": "About",
     "version": "Version",
     "projectName": "Neko Master",
-    "description": "Modern Network Traffic Analytics",
+    "description": "Modern traffic analytics for edge gateways",
     "github": "GitHub",
     "openSource": "Neko Master",
     "license": "MIT License",

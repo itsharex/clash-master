@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>优雅且现代化的网络可视化分析工具</b><br>
+  <b>让你的网络流量一目了然。</b><br>
   <span>实时监控 · 流量审计 · 多网关管理</span>
 </p>
 
@@ -14,26 +14,31 @@
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/pulls/foru17/neko-master?style=flat-square&color=blue&logo=docker" alt="Docker Pulls"></a>
   <a href="https://hub.docker.com/r/foru17/neko-master"><img src="https://img.shields.io/docker/v/foru17/neko-master?style=flat-square&label=Docker&color=2496ED" alt="Docker Version"></a>
   <a href="https://github.com/foru17/neko-master/blob/main/LICENSE"><img src="https://img.shields.io/github/license/foru17/neko-master?style=flat-square&color=green" alt="License"></a>
-  <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js" alt="Node.js">
-</p>
-
-<p align="center">
-  <b>简体中文</b> •
-  <a href="./README.en.md">English</a>
+  <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js">
 </p>
 
 > [!IMPORTANT]
-> **免责声明 / Disclaimer**
+> **免责声明**
 >
-> 本项目仅为 **网络流量可视化与分析工具**，旨在帮助用户通过可视化仪表盘 (Dashboard) 审计本地网络流量、发现异常连接请求、优化网络配置。
+> 本项目为 **网络流量分析与可视化工具**，
+> 用于展示与统计本地网关的流量数据。
 >
-> 本项目 **不提供** 任何网络接入服务、代理节点订阅或跨网络连接功能。所有数据均来源于用户自有的网络网关，数据采集仅在用户本地网络内进行。
+> 本项目 **不提供任何网络接入服务、代理订阅或跨网络连接功能**。
+> 所有数据均来源于用户自有网络环境。
 >
-> 本项目遵循 MIT 协议开源，不对因使用本软件产生的任何后果承担责任。请在合规范围内使用。
+> 请在符合当地法律法规的前提下使用本软件。
 
 ![Neko Master Overview](./assets/neko-master-overview.png)
 ![Neko Master Rules](./assets/neko-master-rules.png)
 ![Neko Master Regions](./assets/neko-master-regions.png)
+
+## 关于名称
+
+**Neko**（ねこ）在日语中意为“猫”，
+发音为 **/ˈneɪkoʊ/**（NEH-ko）。
+
+如同猫一般安静而敏锐，
+Neko Master 专注于对网络流量进行轻量、精确的分析与可视化。
 
 ## 📋 目录
 
@@ -257,7 +262,7 @@ curl -fsSL https://raw.githubusercontent.com/foru17/neko-master/main/setup.sh | 
 ```nginx
 server {
   listen 443 ssl http2;
-  server_name clash.example.com;
+  server_name neko.example.com;
 
   location / {
     proxy_pass http://<neko-master-host>:3000;
@@ -300,10 +305,10 @@ tunnel: <your-tunnel-name-or-id>
 credentials-file: /path/to/<credentials>.json
 
 ingress:
-  - hostname: clash.example.com
+  - hostname: neko.example.com
     path: /_cm_ws*
     service: http://localhost:3002
-  - hostname: clash.example.com
+  - hostname: neko.example.com
     path: /*
     service: http://localhost:3000
   - service: http_status:404

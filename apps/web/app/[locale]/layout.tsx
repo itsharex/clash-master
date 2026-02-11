@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Neko Master",
-  description: "Modern Network Traffic Analytics",
+  description: "Modern traffic analytics for edge gateways",
   icons: {
     icon: "/logo.png",
     shortcut: "/logo.png",

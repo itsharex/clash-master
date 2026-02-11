@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Neko Master",
     short_name: "Neko Master",
-    description: "Modern Network Traffic Analytics",
+    description: "Modern traffic analytics for edge gateways",
     start_url: "/",
     scope: "/",
     display: "standalone",

@@ -269,9 +269,9 @@ export function InteractiveProxyStats({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-12 gap-6">
         {/* Pie Chart */}
-        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
+        <Card className="min-w-0 lg:col-span-1 2xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle>
           </CardHeader>
@@ -323,7 +323,7 @@ export function InteractiveProxyStats({
         </Card>
 
         {/* Proxy List */}
-        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
+        <Card className="min-w-0 lg:col-span-1 2xl:col-span-4">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle></CardHeader>
           <CardContent className="p-3">
             <ScrollArea className="h-[280px] pr-3">
@@ -338,7 +338,7 @@ export function InteractiveProxyStats({
                     <button key={item.rawName} onClick={() => handleProxyClick(item.rawName)} className={cn("w-full p-2.5 rounded-xl border text-left transition-all duration-200", isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/50 bg-card/50 hover:bg-card hover:border-primary/30")}>
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className={cn("w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0", badgeColor)}>{item.rank + 1}</span>
-                        <span className="emoji-flag-font flex-1 text-sm font-medium truncate" title={rawDisplayName}>{rawDisplayName}</span>
+                        <span className="flex-1 text-sm font-medium truncate" title={rawDisplayName}>{rawDisplayName}</span>
                         <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">{formatBytes(item.value)}</span>
                       </div>
                       <div className="pl-7 space-y-1">
@@ -346,13 +346,13 @@ export function InteractiveProxyStats({
                           <div className="h-full bg-blue-500 dark:bg-blue-400" style={{ width: `${item.value > 0 ? (item.download / item.value) * barPercent : 0}%` }} />
                           <div className="h-full bg-purple-500 dark:bg-purple-400" style={{ width: `${item.value > 0 ? (item.upload / item.value) * barPercent : 0}%` }} />
                         </div>
-                        <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
-                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <div className="grid grid-cols-1 min-[300px]:grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
-                            <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
+                            <span className="text-purple-500 dark:text-blue-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
                             <span className="flex items-center gap-1 tabular-nums"><Link2 className="w-3 h-3" />{formatNumber(item.connections)}</span>
                           </div>
-                          <span className="tabular-nums">{percentage.toFixed(1)}%</span>
+                          <span className="tabular-nums text-right min-[300px]:text-right">{percentage.toFixed(1)}%</span>
                         </div>
                       </div>
                     </button>
@@ -364,7 +364,7 @@ export function InteractiveProxyStats({
         </Card>
 
         {/* Top Domains Chart */}
-        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
+        <Card className="min-w-0 lg:col-span-2 2xl:col-span-5">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2"><BarChart3 className="h-4 w-4" />{domainsT("title")}</CardTitle>

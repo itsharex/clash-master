@@ -744,9 +744,9 @@ export function InteractiveRuleStats({
   return (
     <div className="space-y-6">
       {/* Top Section: Three Column Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-12 gap-6">
         {/* Left: Pie Chart (3 columns) */}
-        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
+        <Card className="min-w-0 lg:col-span-1 2xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("distribution")}
@@ -831,7 +831,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Middle: Rule List (4 columns) */}
-        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
+        <Card className="min-w-0 lg:col-span-1 2xl:col-span-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("ruleList")}
@@ -904,16 +904,16 @@ export function InteractiveRuleStats({
                         />
                       </div>
                       {/* Stats */}
-                      <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <div className="grid grid-cols-1 min-[300px]:grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           <span className="text-blue-500 dark:text-blue-400 whitespace-nowrap">↓ {formatBytes(item.download)}</span>
-                          <span className="text-purple-500 dark:text-purple-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
+                          <span className="text-purple-500 dark:text-blue-400 whitespace-nowrap">↑ {formatBytes(item.upload)}</span>
                           <span className="flex items-center gap-1 tabular-nums">
                             <Link2 className="w-3 h-3" />
                             {formatNumber(item.connections)}
                           </span>
                         </div>
-                        <span className="tabular-nums">{percentage.toFixed(1)}%</span>
+                        <span className="tabular-nums text-right min-[300px]:text-right">{percentage.toFixed(1)}%</span>
                       </div>
                     </div>
                     )}
@@ -926,7 +926,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Right: Top Domains Chart (5 columns) */}
-        <Card className="min-w-0 md:col-span-2 xl:col-span-5">
+        <Card className="min-w-0 lg:col-span-2 2xl:col-span-5">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">

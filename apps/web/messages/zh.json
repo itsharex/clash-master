@@ -1,7 +1,7 @@
 {
   "metadata": {
     "title": "Neko Master - 流量分析",
-    "description": "现代网络流量分析平台"
+    "description": "现代网关流量分析工具"
   },
   "nav": {
     "overview": "概览",
@@ -15,7 +15,7 @@
   },
   "header": {
     "title": "Neko Master",
-    "subtitle": "现代网络流量分析平台"
+    "subtitle": "现代网关流量分析工具"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -276,7 +276,7 @@
     "title": "关于",
     "version": "版本",
     "projectName": "Neko Master",
-    "description": "现代网络流量分析平台",
+    "description": "现代网关流量分析工具",
     "github": "GitHub",
     "openSource": "Neko Master",
     "license": "MIT 许可证",

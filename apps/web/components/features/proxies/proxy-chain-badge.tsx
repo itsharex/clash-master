@@ -2,6 +2,7 @@
 
 import { ChevronRight, Waypoints } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsWindows } from "@/lib/hooks/use-is-windows";
 import {
   Tooltip,
   TooltipContent,
@@ -18,7 +19,7 @@ interface ProxyChainBadgeProps {
   emptyClassName?: string;
 }
 
-function ChainFlow({ chain }: { chain: string }) {
+function ChainFlow({ chain, isWindows }: { chain: string; isWindows: boolean }) {
   const segments = chain
     .split(">")
     .map((part) => part.trim())
@@ -63,7 +64,8 @@ function ChainFlow({ chain }: { chain: string }) {
         <span key={`${segment}-${idx}`} className="inline-flex items-center gap-1">
           <span
             className={cn(
-              "emoji-flag-font px-2 py-0.5 rounded-md border text-[11px] font-medium whitespace-nowrap",
+              "px-2 py-0.5 rounded-md border text-[11px] font-medium whitespace-nowrap",
+              isWindows && "emoji-flag-font",
               getNodeTone(idx, displaySegments.length),
             )}
           >
@@ -101,6 +103,8 @@ export function ProxyChainBadge({
   countClassName,
   emptyClassName,
 }: ProxyChainBadgeProps) {
+  const isWindows = useIsWindows();
+
   if (!chains || chains.length === 0) {
     return <span className={cn("text-xs text-muted-foreground", emptyClassName)}>-</span>;
   }
@@ -115,7 +119,8 @@ export function ProxyChainBadge({
           <span className={cn("inline-flex items-center gap-1.5 min-w-0", wrapperClassName)}>
             <span
               className={cn(
-                "emoji-flag-font inline-flex items-center gap-1 rounded-md bg-secondary/60 text-foreground dark:bg-secondary/40 dark:text-foreground/80 text-[11px] font-medium",
+                "inline-flex items-center gap-1 rounded-md bg-secondary/60 text-foreground dark:bg-secondary/40 dark:text-foreground/80 text-[11px] font-medium",
+                isWindows && "emoji-flag-font",
                 truncateLabel
                   ? "px-1.5 py-0.5 truncate max-w-[180px] lg:max-w-[220px]"
                   : "px-2 py-0.5 whitespace-nowrap",
@@ -153,7 +158,7 @@ export function ProxyChainBadge({
                     </span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <ChainFlow chain={chain} />
+                    <ChainFlow chain={chain} isWindows={isWindows} />
                   </div>
                 </div>
               </div>
