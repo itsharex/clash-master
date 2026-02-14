@@ -265,9 +265,9 @@ export function InteractiveProxyStats({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
         {/* Pie Chart */}
-        <Card className="min-w-0">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle>
           </CardHeader>
@@ -319,7 +319,7 @@ export function InteractiveProxyStats({
         </Card>
 
         {/* Proxy List */}
-        <Card className="min-w-0">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("title")}</CardTitle></CardHeader>
           <CardContent className="p-3">
             <ScrollArea className="h-[280px] pr-3">
@@ -331,13 +331,13 @@ export function InteractiveProxyStats({
                   const badgeColor = item.rank === 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : item.rank === 1 ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : item.rank === 2 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : "bg-muted text-muted-foreground";
                   const rawDisplayName = item.rawName || item.name;
                   return (
-                    <button key={item.rawName} onClick={() => handleProxyClick(item.rawName)} className={cn("w-full p-2.5 rounded-xl border text-left transition-all duration-200", isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/50 bg-card/50 hover:bg-card hover:border-primary/30")}>
-                      <div className="flex items-center gap-2 mb-1.5">
+                    <button key={item.rawName} onClick={() => handleProxyClick(item.rawName)} className={cn("w-full p-2.5 rounded-xl border text-left transition-all duration-200 overflow-hidden", isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border/50 bg-card/50 hover:bg-card hover:border-primary/30")}>
+                      <div className="flex items-center gap-2 mb-1.5 min-w-0">
                         <span className={cn("w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0", badgeColor)}>{item.rank + 1}</span>
-                        <span className="flex-1 text-sm font-medium truncate" title={rawDisplayName}>
-                          {rawDisplayName.length > 24 ? rawDisplayName.slice(0, 24) + "..." : rawDisplayName}
+                        <span className="flex-1 text-sm font-medium truncate min-w-0" title={rawDisplayName}>
+                          {rawDisplayName}
                         </span>
-                        <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap">{formatBytes(item.value)}</span>
+                        <span className="text-sm font-bold tabular-nums shrink-0 whitespace-nowrap ml-auto">{formatBytes(item.value)}</span>
                       </div>
                       <div className="pl-7 space-y-1">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
@@ -361,9 +361,8 @@ export function InteractiveProxyStats({
           </CardContent>
         </Card>
 
-        {/* Top Domains Chart - Full width on single column, adapts to container */}
-        <div className="min-w-0 md:col-span-2 xl:col-span-1 @container">
-        <Card className="min-w-0 h-full">
+        {/* Top Domains Chart */}
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5" ref={topDomainsCardRef}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2"><BarChart3 className="h-4 w-4" />{domainsT("title")}</CardTitle>
@@ -384,7 +383,7 @@ export function InteractiveProxyStats({
                 <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">{emptyHint}</p>
               </div>
             ) : (
-              <div className="h-[280px] @min-[500px]:h-[320px] w-full">
+              <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={domainChartData} layout="vertical" margin={{ left: 0, right: showDomainBarLabels ? 70 : 10, top: 5, bottom: 5 }}>
                     <XAxis type="number" hide />
@@ -406,7 +405,6 @@ export function InteractiveProxyStats({
             )}
           </CardContent>
         </Card>
-        </div>
       </div>
 
       {/* Bottom: Tabs with shared table components */}

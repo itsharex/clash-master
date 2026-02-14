@@ -4,6 +4,7 @@
  * This file registers all controllers and services for the API.
  */
 
+import crypto from 'crypto';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
@@ -45,10 +46,20 @@ export async function createApp(options: AppOptions) {
     credentials: true,
   });
 
-  // Register Cookie
+  // Register Cookie — auto-generate a random secret if not configured
+  let cookieSecret = process.env.COOKIE_SECRET;
+  if (!cookieSecret) {
+    cookieSecret = crypto.randomBytes(32).toString('hex');
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '[Security] COOKIE_SECRET is not set. A random secret has been generated for this session. ' +
+        'Sessions will be invalidated on restart. Set COOKIE_SECRET in your .env for persistence.',
+      );
+    }
+  }
   await app.register(cookie, {
-    secret: process.env.COOKIE_SECRET || 'neko-master-secret-change-me', // secure cookie sign
-    parseOptions: {} 
+    secret: cookieSecret,
+    parseOptions: {},
   });
 
   // Create services
@@ -271,7 +282,7 @@ export async function createApp(options: AppOptions) {
       if (isSurge) {
         // Build response from cache or fetch directly
         const providers: Record<string, { proxies: { name: string; type: string; now?: string }[] }> = {};
-        let cacheStatus = policySyncService?.getCacheStatus(backendId);
+        const cacheStatus = policySyncService?.getCacheStatus(backendId);
         
         // Try to use cache first
         if (cacheStatus?.cached && !forceRefresh) {

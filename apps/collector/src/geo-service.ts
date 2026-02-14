@@ -16,6 +16,7 @@ export class GeoIPService {
   private pendingQueries: Map<string, Promise<GeoLocation | null>> = new Map();
   private failedIPs: Map<string, number> = new Map(); // IP -> failure timestamp
   private lastRequestTime: number = 0;
+  private lastFailedIPsCleanup: number = 0;
   private minRequestInterval: number = 100; // Minimum 100ms between requests
   private queue: {
     ip: string;
@@ -28,6 +29,8 @@ export class GeoIPService {
   private static FAIL_COOLDOWN_MS = 30 * 60 * 1000;
   // Maximum queue size to prevent unbounded memory growth
   private static MAX_QUEUE_SIZE = 100;
+  // Sweep expired failedIPs entries every 10 minutes
+  private static FAILED_IPS_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
   constructor(db: StatsDatabase) {
     this.db = db;
@@ -127,10 +130,28 @@ export class GeoIPService {
       item.resolve(null);
     } finally {
       this.isProcessing = false;
+      // Periodically sweep expired failedIPs to prevent unbounded growth
+      this.cleanupFailedIPs();
       // Continue processing if more items in queue
       if (this.queue.length > 0) {
         this.scheduleProcessing();
       }
+    }
+  }
+
+  private cleanupFailedIPs() {
+    const now = Date.now();
+    if (now - this.lastFailedIPsCleanup < GeoIPService.FAILED_IPS_CLEANUP_INTERVAL_MS) return;
+    this.lastFailedIPsCleanup = now;
+    let cleaned = 0;
+    for (const [ip, failedAt] of this.failedIPs) {
+      if (now - failedAt > GeoIPService.FAIL_COOLDOWN_MS) {
+        this.failedIPs.delete(ip);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[GeoIP] Cleaned ${cleaned} expired failed-IP entries`);
     }
   }
 

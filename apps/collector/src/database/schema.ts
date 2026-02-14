@@ -324,6 +324,7 @@ export const SCHEMA = {
       name TEXT NOT NULL,
       url TEXT NOT NULL,
       token TEXT DEFAULT '',
+      type TEXT DEFAULT 'clash',
       enabled BOOLEAN DEFAULT 1,
       is_active BOOLEAN DEFAULT 0,
       listening BOOLEAN DEFAULT 1,
@@ -335,6 +336,29 @@ export const SCHEMA = {
   // App configuration
   APP_CONFIG: `
     CREATE TABLE IF NOT EXISTS app_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `,
+
+  // Surge policy cache
+  SURGE_POLICY_CACHE: `
+    CREATE TABLE IF NOT EXISTS surge_policy_cache (
+      backend_id INTEGER NOT NULL,
+      policy_group TEXT NOT NULL,
+      selected_policy TEXT,
+      policy_type TEXT DEFAULT 'Select',
+      all_policies TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (backend_id, policy_group),
+      FOREIGN KEY (backend_id) REFERENCES backend_configs(id) ON DELETE CASCADE
+    );
+  `,
+
+  // Auth configuration
+  AUTH_CONFIG: `
+    CREATE TABLE IF NOT EXISTS auth_config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -390,6 +414,10 @@ export const INDEXES = [
 
   // Backend configs unique index
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_backend_configs_name ON backend_configs(name);`,
+
+  // Surge policy cache indexes
+  `CREATE INDEX IF NOT EXISTS idx_surge_policy_backend ON surge_policy_cache(backend_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_surge_policy_updated ON surge_policy_cache(updated_at);`,
 ] as const;
 
 // Default app config values
@@ -398,6 +426,13 @@ export const DEFAULT_APP_CONFIG = `
     ('retention.connection_logs_days', '7'),
     ('retention.hourly_stats_days', '30'),
     ('retention.auto_cleanup', '1');
+`;
+
+// Default auth config values
+export const DEFAULT_AUTH_CONFIG = `
+  INSERT OR IGNORE INTO auth_config (key, value) VALUES 
+    ('enabled', '0'),
+    ('token_hash', '');
 `;
 
 // Get all schema creation statements in order
@@ -426,7 +461,10 @@ export function getAllSchemaStatements(): string[] {
     SCHEMA.RULE_IP_TRAFFIC,
     SCHEMA.BACKEND_CONFIGS,
     SCHEMA.APP_CONFIG,
+    SCHEMA.SURGE_POLICY_CACHE,
+    SCHEMA.AUTH_CONFIG,
     ...INDEXES,
     DEFAULT_APP_CONFIG,
+    DEFAULT_AUTH_CONFIG,
   ];
 }

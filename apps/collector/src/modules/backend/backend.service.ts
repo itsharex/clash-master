@@ -30,7 +30,7 @@ function maskUrl(url: string): string {
   } catch {
     // If URL parsing fails, use regex fallback
     // This regex handles: protocol://[anything-until-slash-or-end]
-    return url.replace(/:\/\/[^\/]+/, '://******');
+    return url.replace(/:(\/\/)[^/]+/, '://******');
   }
 }
 

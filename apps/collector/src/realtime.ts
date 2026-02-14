@@ -219,6 +219,11 @@ export class RealtimeStore {
   private countryByBackend = new Map<number, Map<string, CountryDelta>>();
   private maxMinutes: number;
 
+  // Memory bounds: max entries per map before eviction of smallest-traffic entries
+  private static readonly MAX_DOMAIN_ENTRIES = 50_000;
+  private static readonly MAX_IP_ENTRIES = 50_000;
+  private static readonly MAX_DEVICE_DETAIL_ENTRIES = 10_000;
+
   constructor(maxMinutes = parseInt(process.env.REALTIME_MAX_MINUTES || '180', 10)) {
     this.maxMinutes = Number.isFinite(maxMinutes) ? Math.max(30, maxMinutes) : 180;
   }
@@ -1302,6 +1307,55 @@ export class RealtimeStore {
     for (const key of minuteMap.keys()) {
       if (key < cutoffKey) {
         minuteMap.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Evict lowest-traffic entries when a map exceeds its size cap.
+   * Removes the bottom ~25% by total traffic to avoid frequent evictions.
+   */
+  private evictIfNeeded<T extends { totalUpload: number; totalDownload: number }>(
+    map: Map<string, T>,
+    maxEntries: number,
+  ): void {
+    if (map.size <= maxEntries) return;
+
+    const entries = Array.from(map.entries());
+    entries.sort((a, b) =>
+      (a[1].totalUpload + a[1].totalDownload) - (b[1].totalUpload + b[1].totalDownload)
+    );
+
+    // Remove bottom 25%
+    const removeCount = Math.ceil(entries.length * 0.25);
+    for (let i = 0; i < removeCount; i++) {
+      map.delete(entries[i][0]);
+    }
+  }
+
+  /**
+   * Run periodic memory bounds check on all realtime maps.
+   * Called after recordTraffic accumulates data.
+   */
+  pruneIfNeeded(backendId: number): void {
+    const domainMap = this.domainByBackend.get(backendId);
+    if (domainMap) this.evictIfNeeded(domainMap, RealtimeStore.MAX_DOMAIN_ENTRIES);
+
+    const ipMap = this.ipByBackend.get(backendId);
+    if (ipMap) this.evictIfNeeded(ipMap, RealtimeStore.MAX_IP_ENTRIES);
+
+    // Device detail maps (per source IP × domain/IP) can be deeply nested
+    const deviceDomainMap = this.deviceDomainByBackend.get(backendId);
+    if (deviceDomainMap) {
+      for (const [, subMap] of deviceDomainMap) {
+        this.evictIfNeeded(subMap, RealtimeStore.MAX_DEVICE_DETAIL_ENTRIES);
+      }
+    }
+
+    const deviceIPMap = this.deviceIPByBackend.get(backendId);
+    if (deviceIPMap) {
+      for (const [, subMap] of deviceIPMap) {
+        this.evictIfNeeded(subMap, RealtimeStore.MAX_DEVICE_DETAIL_ENTRIES);
       }
     }
   }

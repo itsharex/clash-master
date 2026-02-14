@@ -3,6 +3,11 @@ import type { ConnectionsData } from "@neko-master/shared";
 import { StatsDatabase } from "./db.js";
 import { GeoIPService } from "./geo-service.js";
 import { realtimeStore } from "./realtime.js";
+import { BatchBuffer } from "./batch-buffer.js";
+
+// Stale connection cleanup constants
+const STALE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const CLEANUP_INTERVAL = 2 * 60 * 1000; // 2 minutes
 
 interface CollectorOptions {
   url: string;
@@ -10,36 +15,6 @@ interface CollectorOptions {
   reconnectInterval?: number;
   onData?: (data: ConnectionsData) => void;
   onError?: (error: Error) => void;
-}
-
-interface TrafficUpdate {
-  domain: string;
-  ip: string;
-  chain: string;
-  chains: string[];
-  rule: string;
-  rulePayload: string;
-  upload: number;
-  download: number;
-  sourceIP?: string;
-  timestampMs?: number;
-}
-
-interface GeoIPResult {
-  ip: string;
-  geo: {
-    country: string;
-    country_name: string;
-    continent: string;
-  } | null;
-  upload: number;
-  download: number;
-  timestampMs?: number;
-}
-
-function toMinuteKey(timestampMs?: number): string {
-  const date = new Date(timestampMs ?? Date.now()).toISOString();
-  return `${date.slice(0, 16)}:00`;
 }
 
 export class GatewayCollector {
@@ -141,138 +116,6 @@ export class GatewayCollector {
   }
 }
 
-// Batch buffer for traffic updates
-class BatchBuffer {
-  private buffer: Map<string, TrafficUpdate> = new Map();
-  private geoQueue: GeoIPResult[] = [];
-  private lastLogTime = 0;
-  private logCounter = 0;
-
-  add(backendId: number, update: TrafficUpdate) {
-    const minuteKey = toMinuteKey(update.timestampMs);
-    const fullChain = update.chains.join(" > ");
-    const key = [
-      backendId,
-      minuteKey,
-      update.domain,
-      update.ip,
-      update.chain,
-      fullChain,
-      update.rule,
-      update.rulePayload,
-      update.sourceIP || "",
-    ].join(":");
-    const existing = this.buffer.get(key);
-
-    if (existing) {
-      existing.upload += update.upload;
-      existing.download += update.download;
-      if ((update.timestampMs ?? 0) > (existing.timestampMs ?? 0)) {
-        existing.timestampMs = update.timestampMs;
-      }
-    } else {
-      this.buffer.set(key, { ...update });
-    }
-  }
-
-  addGeoResult(result: GeoIPResult) {
-    this.geoQueue.push(result);
-  }
-
-  size(): number {
-    return this.buffer.size;
-  }
-
-  hasPending(): boolean {
-    return this.buffer.size > 0 || this.geoQueue.length > 0;
-  }
-
-  flush(
-    db: StatsDatabase,
-    _geoService: GeoIPService | undefined,
-    backendId: number,
-  ): { domains: number; rules: number; trafficOk: boolean; countryOk: boolean; hasUpdates: boolean } {
-    const updates = Array.from(this.buffer.values());
-    const geoResults = [...this.geoQueue];
-
-    // Calculate unique domains and rules for logging
-    const domains = new Set<string>();
-    const rules = new Set<string>();
-
-    for (const update of updates) {
-      if (update.domain) domains.add(update.domain);
-      const initialRule =
-        update.chains.length > 0
-          ? update.chains[update.chains.length - 1]
-          : "DIRECT";
-      rules.add(initialRule);
-    }
-
-    let trafficOk = true;
-    let countryOk = true;
-
-    if (updates.length > 0) {
-      try {
-        db.batchUpdateTrafficStats(backendId, updates);
-      } catch (err) {
-        trafficOk = false;
-        console.error(`[Collector:${backendId}] Batch write failed:`, err);
-      }
-    }
-
-    if (trafficOk) {
-      this.buffer.clear();
-    }
-
-    if (geoResults.length > 0) {
-      try {
-        const countryUpdates = geoResults
-          .filter(
-            (r): r is GeoIPResult & { geo: NonNullable<GeoIPResult["geo"]> } =>
-              r.geo !== null,
-          )
-          .map((r) => ({
-            country: r.geo.country,
-            countryName: r.geo.country_name,
-            continent: r.geo.continent,
-            upload: r.upload,
-            download: r.download,
-            timestampMs: r.timestampMs,
-          }));
-        db.batchUpdateCountryStats(backendId, countryUpdates);
-      } catch (err) {
-        countryOk = false;
-        console.error(`[Collector:${backendId}] Country batch write failed:`, err);
-      }
-    }
-
-    if (countryOk) {
-      this.geoQueue = [];
-    }
-
-    return {
-      domains: domains.size,
-      rules: rules.size,
-      trafficOk,
-      countryOk,
-      hasUpdates: updates.length > 0 || geoResults.length > 0,
-    };
-  }
-
-  shouldLog(): boolean {
-    const now = Date.now();
-    if (now - this.lastLogTime > 10000) {
-      this.lastLogTime = now;
-      return true;
-    }
-    return false;
-  }
-
-  incrementLogCounter(): number {
-    return ++this.logCounter;
-  }
-}
-
 // Track connection state with their accumulated traffic
 interface TrackedConnection {
   id: string;
@@ -286,6 +129,7 @@ interface TrackedConnection {
   totalUpload: number;
   totalDownload: number;
   sourceIP?: string;
+  lastSeen: number;
 }
 
 export function createCollector(
@@ -302,11 +146,29 @@ export function createCollector(
   let lastBroadcastTime = 0;
   const broadcastThrottleMs = 500;
   let flushInterval: NodeJS.Timeout | null = null;
+  let cleanupInterval: NodeJS.Timeout | null = null;
   const FLUSH_INTERVAL_MS = parseInt(process.env.FLUSH_INTERVAL_MS || "30000");
   const FLUSH_MAX_BUFFER_SIZE = parseInt(
     process.env.FLUSH_MAX_BUFFER_SIZE || "5000",
   );
   let isFlushing = false;
+  let lastPruneTime = 0;
+  const PRUNE_INTERVAL_MS = 60_000; // Check memory bounds every 60s
+
+  // Clean up stale connections that haven't been updated for a while
+  const cleanupStaleConnections = () => {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [connId, conn] of activeConnections) {
+      if (now - conn.lastSeen > STALE_CONNECTION_TIMEOUT) {
+        activeConnections.delete(connId);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[Collector:${id}] Cleaned up ${cleaned} stale connections`);
+    }
+  };
 
   const flushBatch = () => {
     if (isFlushing || !batchBuffer.hasPending()) {
@@ -315,7 +177,7 @@ export function createCollector(
 
     isFlushing = true;
     try {
-      const stats = batchBuffer.flush(db, geoService, id);
+      const stats = batchBuffer.flush(db, geoService, id, "Collector");
 
       if (stats.trafficOk) {
         realtimeStore.clearTraffic(id);
@@ -332,12 +194,24 @@ export function createCollector(
     } finally {
       isFlushing = false;
     }
+
+    // Periodic memory bounds check on realtime store
+    const now = Date.now();
+    if (now - lastPruneTime > PRUNE_INTERVAL_MS) {
+      lastPruneTime = now;
+      realtimeStore.pruneIfNeeded(id);
+    }
   };
 
   // Start batch flush interval
   flushInterval = setInterval(() => {
     flushBatch();
   }, FLUSH_INTERVAL_MS);
+
+  // Start cleanup interval for stale connections
+  cleanupInterval = setInterval(() => {
+    cleanupStaleConnections();
+  }, CLEANUP_INTERVAL);
 
   const collector = new GatewayCollector(id, {
     url,
@@ -409,6 +283,7 @@ export function createCollector(
             totalUpload: conn.upload,
             totalDownload: conn.download,
             sourceIP,
+            lastSeen: now,
           });
 
           // Record initial traffic for new connection (add to batch buffer)
@@ -513,6 +388,7 @@ export function createCollector(
 
             existing.lastUpload = conn.upload;
             existing.lastDownload = conn.download;
+            existing.lastSeen = now;
             hasNewTraffic = true;
           }
         }
@@ -574,7 +450,7 @@ export function createCollector(
     },
   });
 
-  // Override disconnect to clear interval
+  // Override disconnect to clear intervals
   const originalDisconnect = collector.disconnect.bind(collector);
   collector.disconnect = () => {
     if (flushInterval) {
@@ -582,6 +458,10 @@ export function createCollector(
       flushInterval = null;
       // Final flush
       flushBatch();
+    }
+    if (cleanupInterval) {
+      clearInterval(cleanupInterval);
+      cleanupInterval = null;
     }
     originalDisconnect();
   };

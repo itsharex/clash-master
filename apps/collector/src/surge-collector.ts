@@ -4,6 +4,7 @@ import { GeoIPService } from "./geo-service.js";
 import { realtimeStore } from "./realtime.js";
 import type { SurgeRequest, SurgeRequestsData } from "@neko-master/shared";
 import { calculateBackoffDelay } from "./utils.js";
+import { BatchBuffer } from "./batch-buffer.js";
 
 // Debug configuration
 const DEBUG_SURGE = process.env.DEBUG_SURGE === "true";
@@ -16,36 +17,6 @@ interface SurgeCollectorOptions {
   pollInterval?: number;
   onData?: (data: SurgeRequestsData) => void;
   onError?: (error: Error) => void;
-}
-
-interface TrafficUpdate {
-  domain: string;
-  ip: string;
-  chain: string;
-  chains: string[];
-  rule: string;
-  rulePayload: string;
-  upload: number;
-  download: number;
-  sourceIP?: string;
-  timestampMs?: number;
-}
-
-interface GeoIPResult {
-  ip: string;
-  geo: {
-    country: string;
-    country_name: string;
-    continent: string;
-  } | null;
-  upload: number;
-  download: number;
-  timestampMs?: number;
-}
-
-function toMinuteKey(timestampMs?: number): string {
-  const date = new Date(timestampMs ?? Date.now()).toISOString();
-  return `${date.slice(0, 16)}:00`;
 }
 
 export class SurgeCollector {
@@ -182,147 +153,6 @@ export class SurgeCollector {
   }
 }
 
-// Batch buffer for traffic updates
-class BatchBuffer {
-  private buffer: Map<string, TrafficUpdate> = new Map();
-  private geoQueue: GeoIPResult[] = [];
-  private lastLogTime = 0;
-  private logCounter = 0;
-
-  add(backendId: number, update: TrafficUpdate) {
-    const minuteKey = toMinuteKey(update.timestampMs);
-    const fullChain = update.chains.join(" > ");
-    const key = [
-      backendId,
-      minuteKey,
-      update.domain,
-      update.ip,
-      update.chain,
-      fullChain,
-      update.rule,
-      update.rulePayload,
-      update.sourceIP || "",
-    ].join(":");
-    const existing = this.buffer.get(key);
-
-    if (existing) {
-      existing.upload += update.upload;
-      existing.download += update.download;
-      if ((update.timestampMs ?? 0) > (existing.timestampMs ?? 0)) {
-        existing.timestampMs = update.timestampMs;
-      }
-    } else {
-      this.buffer.set(key, { ...update });
-    }
-  }
-
-  addGeoResult(result: GeoIPResult) {
-    this.geoQueue.push(result);
-  }
-
-  size(): number {
-    return this.buffer.size;
-  }
-
-  hasPending(): boolean {
-    return this.buffer.size > 0 || this.geoQueue.length > 0;
-  }
-
-  flush(
-    db: StatsDatabase,
-    _geoService: GeoIPService | undefined,
-    backendId: number
-  ): {
-    domains: number;
-    rules: number;
-    trafficOk: boolean;
-    countryOk: boolean;
-    hasUpdates: boolean;
-  } {
-    const updates = Array.from(this.buffer.values());
-    const geoResults = [...this.geoQueue];
-
-    // Calculate unique domains and rules for logging
-    const domains = new Set<string>();
-    const rules = new Set<string>();
-
-    for (const update of updates) {
-      if (update.domain) domains.add(update.domain);
-      const initialRule =
-        update.chains.length > 0
-          ? update.chains[update.chains.length - 1]
-          : "DIRECT";
-      rules.add(initialRule);
-    }
-
-    let trafficOk = true;
-    let countryOk = true;
-
-    if (updates.length > 0) {
-      try {
-        db.batchUpdateTrafficStats(backendId, updates);
-      } catch (err) {
-        trafficOk = false;
-        console.error(`[SurgeCollector:${backendId}] Batch write failed:`, err);
-      }
-    }
-
-    if (trafficOk) {
-      this.buffer.clear();
-    }
-
-    if (geoResults.length > 0) {
-      try {
-        const countryUpdates = geoResults
-          .filter(
-            (r): r is GeoIPResult & { geo: NonNullable<GeoIPResult["geo"]> } =>
-              r.geo !== null
-          )
-          .map((r) => ({
-            country: r.geo.country,
-            countryName: r.geo.country_name,
-            continent: r.geo.continent,
-            upload: r.upload,
-            download: r.download,
-            timestampMs: r.timestampMs,
-          }));
-        db.batchUpdateCountryStats(backendId, countryUpdates);
-      } catch (err) {
-        countryOk = false;
-        console.error(
-          `[SurgeCollector:${backendId}] Country batch write failed:`,
-          err
-        );
-      }
-    }
-
-    if (countryOk) {
-      this.geoQueue = [];
-    }
-
-    return {
-      domains: domains.size,
-      rules: rules.size,
-      trafficOk,
-      countryOk,
-      hasUpdates: updates.length > 0 || geoResults.length > 0,
-    };
-  }
-
-  shouldLog(): boolean {
-    const now = Date.now();
-    if (now - this.lastLogTime > 10000) {
-      this.lastLogTime = now;
-      return true;
-    }
-    return false;
-  }
-
-  incrementLogCounter(): number {
-    return ++this.logCounter;
-  }
-}
-
 // Track request state with their accumulated traffic
 interface TrackedRequest {
   id: string;
@@ -432,6 +262,8 @@ export function createSurgeCollector(
     process.env.FLUSH_MAX_BUFFER_SIZE || "5000"
   );
   let isFlushing = false;
+  let lastPruneTime = 0;
+  const PRUNE_INTERVAL_MS = 60_000;
   let newConnectionsCount = 0;
   let completedConnectionsCount = 0;
 
@@ -467,7 +299,7 @@ export function createSurgeCollector(
 
     isFlushing = true;
     try {
-      const stats = batchBuffer.flush(db, geoService, id);
+      const stats = batchBuffer.flush(db, geoService, id, "SurgeCollector");
 
       if (stats.trafficOk) {
         realtimeStore.clearTraffic(id);
@@ -486,6 +318,13 @@ export function createSurgeCollector(
       }
     } finally {
       isFlushing = false;
+    }
+
+    // Periodic memory bounds check on realtime store
+    const pruneNow = Date.now();
+    if (pruneNow - lastPruneTime > PRUNE_INTERVAL_MS) {
+      lastPruneTime = pruneNow;
+      realtimeStore.pruneIfNeeded(id);
     }
   };
 
@@ -930,7 +769,7 @@ function isDomain(host: string): boolean {
   // Remove port if present
   const hostWithoutPort = extractHost(host);
   if (isIP(hostWithoutPort)) return false;
-  return /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/.test(
+  return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(
     hostWithoutPort
   );
 }

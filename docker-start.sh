@@ -9,6 +9,21 @@ API_PORT="${API_PORT:-3001}"
 COLLECTOR_WS_PORT="${COLLECTOR_WS_PORT:-3002}"
 DB_PATH="${DB_PATH:-/app/data/stats.db}"
 
+# Auto-generate COOKIE_SECRET if not set (persisted in data volume)
+if [ -z "$COOKIE_SECRET" ]; then
+  SECRET_FILE="$(dirname "$DB_PATH")/.cookie-secret"
+  if [ -f "$SECRET_FILE" ]; then
+    COOKIE_SECRET=$(cat "$SECRET_FILE")
+  else
+    COOKIE_SECRET=$(head -c 32 /dev/urandom | od -A n -t x1 | tr -d ' \n')
+    mkdir -p "$(dirname "$SECRET_FILE")"
+    echo -n "$COOKIE_SECRET" > "$SECRET_FILE"
+    chmod 600 "$SECRET_FILE"
+    echo "🔑 Generated new COOKIE_SECRET (persisted in data volume)"
+  fi
+  export COOKIE_SECRET
+fi
+
 export API_PORT COLLECTOR_WS_PORT DB_PATH
 
 echo "╔════════════════════════════════════════════════════════╗"

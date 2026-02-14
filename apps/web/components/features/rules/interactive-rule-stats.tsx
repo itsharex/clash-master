@@ -628,9 +628,9 @@ export function InteractiveRuleStats({
   return (
     <div className="space-y-6">
       {/* Top Section: Three Column Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-6">
         {/* Left: Pie Chart */}
-        <Card className="min-w-0">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("distribution")}
@@ -715,7 +715,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Middle: Rule List */}
-        <Card className="min-w-0">
+        <Card className="min-w-0 md:col-span-1 xl:col-span-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t("ruleList")}
@@ -746,7 +746,7 @@ export function InteractiveRuleStats({
                     key={item.rawName}
                     onClick={() => !noTraffic && handleRuleClick(item.rawName)}
                     className={cn(
-                      "w-full p-2.5 rounded-xl border text-left transition-all duration-200 @container",
+                      "w-full p-2.5 rounded-xl border text-left transition-all duration-200 overflow-hidden @container",
                       noTraffic
                         ? "border-border/30 bg-card/30 opacity-50 cursor-default"
                         : isSelected
@@ -876,8 +876,7 @@ export function InteractiveRuleStats({
         </Card>
 
         {/* Right: Top Domains Chart - Full width on single column, adapts to container */}
-        <div ref={topDomainsCardRef} className="min-w-0 md:col-span-2 xl:col-span-1">
-        <Card className="min-w-0 @container h-full">
+        <Card className="min-w-0 md:col-span-2 xl:col-span-5 @container h-full" ref={topDomainsCardRef}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
@@ -989,7 +988,6 @@ export function InteractiveRuleStats({
             )}
           </CardContent>
         </Card>
-        </div>
       </div>
 
       {/* Unified Chain Flow Visualization - shows all rules, highlights selected */}

@@ -29,7 +29,7 @@ function getBackendId(request: FastifyRequest, service: StatsService): number | 
 // Helper function to parse time range
 function getTimeRange(request: FastifyRequest, reply: FastifyReply, isShowcaseMode = false): TimeRange | null {
   const query = request.query as Record<string, string | undefined>;
-  let { start, end } = query;
+  const { start, end } = query;
 
   if (isShowcaseMode) {
     // In showcase mode, we clamp the start time to be no older than 24 hours ago

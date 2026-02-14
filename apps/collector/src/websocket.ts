@@ -1,5 +1,5 @@
 import { WebSocketServer as WSServer, WebSocket } from 'ws';
-import type { StatsSummary } from '@neko-master/shared';
+import type { StatsSummary, DomainStats, IPStats, ProxyStats, CountryStats, DeviceStats, RuleStats, HourlyStats } from '@neko-master/shared';
 import type { StatsDatabase } from './db.js';
 import { realtimeStore } from './realtime.js';
 import { AuthService } from './modules/auth/auth.service.js';
@@ -108,14 +108,14 @@ export class StatsWebSocketServer {
   // Cache for expensive full-summary queries: avoids re-querying all 8 base tables
   // when multiple broadcasts fire within a short window.
   private baseSummaryCache = new Map<string, {
-    summary: any;
-    topDomains: any;
-    topIPs: any;
-    proxyStats: any;
-    countryStats: any;
-    deviceStats: any;
-    ruleStats: any;
-    hourlyStats: any;
+    summary: { totalConnections: number; totalUpload: number; totalDownload: number; uniqueDomains: number; uniqueIPs: number };
+    topDomains: DomainStats[];
+    topIPs: IPStats[];
+    proxyStats: ProxyStats[];
+    countryStats: CountryStats[];
+    deviceStats: DeviceStats[];
+    ruleStats: RuleStats[];
+    hourlyStats: HourlyStats[];
     ts: number;
   }>();
   private static BASE_SUMMARY_CACHE_TTL_MS = 2000;
@@ -699,7 +699,7 @@ export class StatsWebSocketServer {
 
     // Use cached base summary data to avoid repeated expensive DB queries
     const baseCacheKey = `${resolvedBackendId}|${range.start || ''}|${range.end || ''}`;
-    let baseCached = this.baseSummaryCache.get(baseCacheKey);
+    const baseCached = this.baseSummaryCache.get(baseCacheKey);
     const baseCacheValid = baseCached && Date.now() - baseCached.ts < StatsWebSocketServer.BASE_SUMMARY_CACHE_TTL_MS;
 
     const dbTopDomains = wantsFullSummary
@@ -1015,6 +1015,7 @@ export class StatsWebSocketServer {
         data: stats,
         timestamp: new Date().toISOString(),
       };
+      // Pre-serialize to avoid repeated JSON.stringify if same payload is reused
       ws.send(JSON.stringify(message));
       clientInfo.lastSentAt = Date.now();
     } catch (err) {
@@ -1033,11 +1034,13 @@ export class StatsWebSocketServer {
 
     if (this.clients.size === 0) return;
 
-    try {
-      let sentCount = 0;
-      const statsCache = new Map<string, StatsSummary | null>();
+    let sentCount = 0;
+    // Cache serialized JSON per unique query combo to avoid repeated JSON.stringify
+    const jsonCache = new Map<string, string | null>();
+    const ts = new Date().toISOString();
 
-      for (const [ws, clientInfo] of this.clients) {
+    for (const [ws, clientInfo] of this.clients) {
+      try {
         if (ws.readyState !== WebSocket.OPEN) continue;
 
         if (!force && clientInfo.minPushIntervalMs > 0) {
@@ -1074,41 +1077,38 @@ export class StatsWebSocketServer {
           ? `${clientInfo.ipsPage.offset}|${clientInfo.ipsPage.limit}|${clientInfo.ipsPage.sortBy || ''}|${clientInfo.ipsPage.sortOrder || ''}|${clientInfo.ipsPage.search || ''}`
           : '';
         const cacheKey = `${resolvedBackendId}|${clientInfo.range.start || ''}|${clientInfo.range.end || ''}|${trendKey}|${deviceDetailKey}|${proxyDetailKey}|${ruleDetailKey}|${ruleChainFlowKey}|${domainsPageKey}|${ipsPageKey}`;
-        if (!statsCache.has(cacheKey)) {
-          statsCache.set(
+        if (!jsonCache.has(cacheKey)) {
+          const stats = this.getStatsForBackend(
+            resolvedBackendId,
+            clientInfo.range,
+            clientInfo.trend,
+            clientInfo.deviceDetail,
+            clientInfo.proxyDetail,
+            clientInfo.ruleDetail,
+            clientInfo.includeRuleChainFlow,
+            clientInfo.domainsPage,
+            clientInfo.ipsPage,
+          );
+          // Serialize once per unique query; reuse for all clients with same params
+          jsonCache.set(
             cacheKey,
-            this.getStatsForBackend(
-              resolvedBackendId,
-              clientInfo.range,
-              clientInfo.trend,
-              clientInfo.deviceDetail,
-              clientInfo.proxyDetail,
-              clientInfo.ruleDetail,
-              clientInfo.includeRuleChainFlow,
-              clientInfo.domainsPage,
-              clientInfo.ipsPage,
-            ),
+            stats ? JSON.stringify({ type: 'stats', data: stats, timestamp: ts }) : null,
           );
         }
 
-        const stats = statsCache.get(cacheKey);
-        if (!stats) continue;
+        const json = jsonCache.get(cacheKey);
+        if (!json) continue;
 
-        const message: WebSocketMessage = {
-          type: 'stats',
-          data: stats,
-          timestamp: new Date().toISOString(),
-        };
-        ws.send(JSON.stringify(message));
+        ws.send(json);
         clientInfo.lastSentAt = now;
         sentCount++;
+      } catch (err) {
+        console.error('[WebSocket] Error sending to client:', err);
       }
+    }
 
-      if (sentCount > 0) {
-        console.log(`[WebSocket] Broadcasted stats to ${sentCount} clients`);
-      }
-    } catch (err) {
-      console.error('[WebSocket] Error broadcasting stats:', err);
+    if (sentCount > 0) {
+      console.log(`[WebSocket] Broadcasted stats to ${sentCount} clients`);
     }
   }
 
