@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
+const GITHUB_REPO =
+  process.env.NEXT_PUBLIC_GITHUB_REPO || "foru17/neko-master";
 const GITHUB_PACKAGE_URL =
-  "https://raw.githubusercontent.com/foru17/neko-master/refs/heads/main/package.json";
+  `https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/package.json`;
 const GITHUB_API_URL =
-  "https://api.github.com/repos/foru17/neko-master";
+  `https://api.github.com/repos/${GITHUB_REPO}`;
 const CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
 const FETCH_TIMEOUT = 10000; // 10 seconds
 
