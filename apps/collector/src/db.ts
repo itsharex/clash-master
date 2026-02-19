@@ -119,13 +119,30 @@ export class StatsDatabase {
   }
 
   private init() {
+    const sqliteCacheMb = Math.max(
+      16,
+      Number.parseInt(process.env.SQLITE_CACHE_MB || '64', 10) || 64,
+    );
+    const sqliteWalAutocheckpointPages = Math.max(
+      100,
+      Number.parseInt(process.env.SQLITE_WAL_AUTOCHECKPOINT_PAGES || '1000', 10) || 1000,
+    );
+    const sqliteBusyTimeoutMs = Math.max(
+      1000,
+      Number.parseInt(process.env.SQLITE_BUSY_TIMEOUT_MS || '5000', 10) || 5000,
+    );
+
     // Enable WAL mode and performance PRAGMAs for reduced disk IO
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('wal_autocheckpoint = 1000');
+    this.db.pragma(`wal_autocheckpoint = ${sqliteWalAutocheckpointPages}`);
     this.db.pragma('temp_store = MEMORY');
-    this.db.pragma('cache_size = -65536');     // 64MB page cache
-    this.db.pragma('busy_timeout = 5000');
+    this.db.pragma(`cache_size = -${sqliteCacheMb * 1024}`);
+    this.db.pragma(`busy_timeout = ${sqliteBusyTimeoutMs}`);
+
+    console.info(
+      `[DB] SQLite tuning: cache=${sqliteCacheMb}MB, wal_autocheckpoint=${sqliteWalAutocheckpointPages}, busy_timeout=${sqliteBusyTimeoutMs}ms`,
+    );
 
     // Apply all schema statements from the single source of truth
     for (const stmt of getAllSchemaStatements()) {
