@@ -120,6 +120,25 @@ export class StatsWebSocketServer {
   }>();
   private static BASE_SUMMARY_CACHE_TTL_MS = 2000;
   private static BASE_SUMMARY_CACHE_TTL_HISTORICAL_MS = 300000; // 5 minutes for historical ranges
+  private wsMetricsLogIntervalMs = Math.max(
+    1000,
+    parseInt(process.env.WS_METRICS_LOG_INTERVAL_MS || '60000', 10) || 60000,
+  );
+  private wsMetricsWindowStartedAt = Date.now();
+  private wsMetrics = {
+    subscribeTotal: 0,
+    subscribeChanged: 0,
+    subscribeNoop: 0,
+    getStatsCalls: 0,
+    fullSummaryCalls: 0,
+    baseCacheHit: 0,
+    baseCacheMiss: 0,
+    trendCalls: 0,
+    detailCalls: 0,
+    pagedCalls: 0,
+    broadcastCalls: 0,
+    broadcastSentClients: 0,
+  };
 
   constructor(port: number, db: StatsDatabase) {
     this.port = port;
@@ -208,11 +227,17 @@ export class StatsWebSocketServer {
           }
 
           if (msg.type === 'subscribe') {
+            this.wsMetrics.subscribeTotal += 1;
+            let changed = false;
+
             if (msg.backendId !== undefined) {
               const backend = this.db.getBackend(msg.backendId);
               if (backend) {
-                clientInfo.backendId = msg.backendId;
-                console.log(`[WebSocket] Client subscribed to backend: ${backend.name} (ID: ${msg.backendId})`);
+                if (clientInfo.backendId !== msg.backendId) {
+                  clientInfo.backendId = msg.backendId;
+                  changed = true;
+                  console.log(`[WebSocket] Client subscribed to backend: ${backend.name} (ID: ${msg.backendId})`);
+                }
               } else {
                 console.warn(`[WebSocket] Client tried to subscribe to non-existent backend: ${msg.backendId}`);
               }
@@ -221,15 +246,22 @@ export class StatsWebSocketServer {
             if (msg.start !== undefined || msg.end !== undefined) {
               const parsedRange = this.parseRange(msg.start, msg.end);
               if (parsedRange) {
-                clientInfo.range = parsedRange;
+                if (!this.isRangeEqual(clientInfo.range, parsedRange)) {
+                  clientInfo.range = parsedRange;
+                  changed = true;
+                }
               }
             }
 
             if (msg.minPushIntervalMs !== undefined) {
-              clientInfo.minPushIntervalMs = this.parseMinPushIntervalMs(
+              const nextMinPushIntervalMs = this.parseMinPushIntervalMs(
                 msg.minPushIntervalMs,
                 clientInfo.minPushIntervalMs,
               );
+              if (nextMinPushIntervalMs !== clientInfo.minPushIntervalMs) {
+                clientInfo.minPushIntervalMs = nextMinPushIntervalMs;
+                changed = true;
+              }
             }
 
             if (
@@ -244,7 +276,10 @@ export class StatsWebSocketServer {
                 clientInfo.range,
               );
               if (parsedTrend !== undefined) {
-                clientInfo.trend = parsedTrend;
+                if (!this.isTrendEqual(clientInfo.trend, parsedTrend)) {
+                  clientInfo.trend = parsedTrend;
+                  changed = true;
+                }
               }
             }
             if (
@@ -258,7 +293,10 @@ export class StatsWebSocketServer {
                 msg.deviceDetailLimit,
               );
               if (parsedDeviceDetail !== undefined) {
-                clientInfo.deviceDetail = parsedDeviceDetail;
+                if (!this.isDeviceDetailEqual(clientInfo.deviceDetail, parsedDeviceDetail)) {
+                  clientInfo.deviceDetail = parsedDeviceDetail;
+                  changed = true;
+                }
               }
             }
             if (
@@ -272,7 +310,10 @@ export class StatsWebSocketServer {
                 msg.proxyDetailLimit,
               );
               if (parsedProxyDetail !== undefined) {
-                clientInfo.proxyDetail = parsedProxyDetail;
+                if (!this.isProxyDetailEqual(clientInfo.proxyDetail, parsedProxyDetail)) {
+                  clientInfo.proxyDetail = parsedProxyDetail;
+                  changed = true;
+                }
               }
             }
             if (
@@ -286,11 +327,18 @@ export class StatsWebSocketServer {
                 msg.ruleDetailLimit,
               );
               if (parsedRuleDetail !== undefined) {
-                clientInfo.ruleDetail = parsedRuleDetail;
+                if (!this.isRuleDetailEqual(clientInfo.ruleDetail, parsedRuleDetail)) {
+                  clientInfo.ruleDetail = parsedRuleDetail;
+                  changed = true;
+                }
               }
             }
             if (msg.includeRuleChainFlow !== undefined) {
-              clientInfo.includeRuleChainFlow = !!msg.includeRuleChainFlow;
+              const nextIncludeRuleChainFlow = !!msg.includeRuleChainFlow;
+              if (nextIncludeRuleChainFlow !== clientInfo.includeRuleChainFlow) {
+                clientInfo.includeRuleChainFlow = nextIncludeRuleChainFlow;
+                changed = true;
+              }
             }
             if (
               msg.includeDomainsPage !== undefined ||
@@ -309,7 +357,10 @@ export class StatsWebSocketServer {
                 msg.domainsPageSearch,
               );
               if (parsedDomainsPage !== undefined) {
-                clientInfo.domainsPage = parsedDomainsPage;
+                if (!this.isDomainsPageEqual(clientInfo.domainsPage, parsedDomainsPage)) {
+                  clientInfo.domainsPage = parsedDomainsPage;
+                  changed = true;
+                }
               }
             }
             if (
@@ -329,11 +380,20 @@ export class StatsWebSocketServer {
                 msg.ipsPageSearch,
               );
               if (parsedIPsPage !== undefined) {
-                clientInfo.ipsPage = parsedIPsPage;
+                if (!this.isIPsPageEqual(clientInfo.ipsPage, parsedIPsPage)) {
+                  clientInfo.ipsPage = parsedIPsPage;
+                  changed = true;
+                }
               }
             }
 
-            this.sendStatsToClient(ws);
+            if (changed) {
+              this.wsMetrics.subscribeChanged += 1;
+              this.sendStatsToClient(ws);
+            } else {
+              this.wsMetrics.subscribeNoop += 1;
+            }
+            this.maybeLogWsMetrics();
           }
         } catch {
           // Ignore invalid frames.
@@ -385,6 +445,58 @@ export class StatsWebSocketServer {
     if (!Number.isFinite(value)) return fallback;
     // Keep range conservative to avoid client misuse.
     return Math.max(0, Math.min(60_000, Math.floor(value)));
+  }
+
+  private isRangeEqual(a: ClientRange, b: ClientRange): boolean {
+    return (a.start || '') === (b.start || '') && (a.end || '') === (b.end || '');
+  }
+
+  private isTrendEqual(a: ClientTrend, b: ClientTrend): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return a.minutes === b.minutes && a.bucketMinutes === b.bucketMinutes;
+  }
+
+  private isDeviceDetailEqual(a: ClientDeviceDetail, b: ClientDeviceDetail): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return a.sourceIP === b.sourceIP && a.limit === b.limit;
+  }
+
+  private isProxyDetailEqual(a: ClientProxyDetail, b: ClientProxyDetail): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return a.chain === b.chain && a.limit === b.limit;
+  }
+
+  private isRuleDetailEqual(a: ClientRuleDetail, b: ClientRuleDetail): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return a.rule === b.rule && a.limit === b.limit;
+  }
+
+  private isDomainsPageEqual(a: ClientDomainsPage, b: ClientDomainsPage): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return (
+      a.offset === b.offset &&
+      a.limit === b.limit &&
+      (a.sortBy || '') === (b.sortBy || '') &&
+      (a.sortOrder || '') === (b.sortOrder || '') &&
+      (a.search || '') === (b.search || '')
+    );
+  }
+
+  private isIPsPageEqual(a: ClientIPsPage, b: ClientIPsPage): boolean {
+    if (a === null && b === null) return true;
+    if (!a || !b) return false;
+    return (
+      a.offset === b.offset &&
+      a.limit === b.limit &&
+      (a.sortBy || '') === (b.sortBy || '') &&
+      (a.sortOrder || '') === (b.sortOrder || '') &&
+      (a.search || '') === (b.search || '')
+    );
   }
 
   private shouldIncludeRealtime(range: ClientRange): boolean {
@@ -676,6 +788,7 @@ export class StatsWebSocketServer {
     domainsPage: ClientDomainsPage,
     ipsPage: ClientIPsPage,
   ): StatsSummary | null {
+    this.wsMetrics.getStatsCalls += 1;
     const resolvedBackendId = this.resolveBackendId(backendId);
     if (resolvedBackendId === null) {
       return null;
@@ -690,6 +803,17 @@ export class StatsWebSocketServer {
       !includeRuleChainFlow &&
       !domainsPage &&
       !ipsPage;
+
+    if (wantsFullSummary) {
+      this.wsMetrics.fullSummaryCalls += 1;
+    }
+    if (trend) this.wsMetrics.trendCalls += 1;
+    if (deviceDetail || proxyDetail || ruleDetail || includeRuleChainFlow) {
+      this.wsMetrics.detailCalls += 1;
+    }
+    if (domainsPage || ipsPage) {
+      this.wsMetrics.pagedCalls += 1;
+    }
 
     const cacheTTL = this.getBaseSummaryCacheTTL(range);
 
@@ -715,6 +839,13 @@ export class StatsWebSocketServer {
     const baseCacheKey = `${resolvedBackendId}|${range.start || ''}|${range.end || ''}`;
     const baseCached = this.baseSummaryCache.get(baseCacheKey);
     const baseCacheValid = baseCached && Date.now() - baseCached.ts < cacheTTL;
+    if (wantsFullSummary) {
+      if (baseCacheValid) {
+        this.wsMetrics.baseCacheHit += 1;
+      } else {
+        this.wsMetrics.baseCacheMiss += 1;
+      }
+    }
 
     const dbTopDomains = wantsFullSummary
       ? (baseCacheValid ? baseCached!.topDomains : this.db.getTopDomainsLight(resolvedBackendId, 100, range.start, range.end))
@@ -1048,6 +1179,8 @@ export class StatsWebSocketServer {
 
     if (this.clients.size === 0) return;
 
+    this.wsMetrics.broadcastCalls += 1;
+
     let sentCount = 0;
     // Cache serialized JSON per unique query combo to avoid repeated JSON.stringify
     const jsonCache = new Map<string, string | null>();
@@ -1122,8 +1255,49 @@ export class StatsWebSocketServer {
     }
 
     if (sentCount > 0) {
+      this.wsMetrics.broadcastSentClients += sentCount;
+      this.maybeLogWsMetrics();
       console.log(`[WebSocket] Broadcasted stats to ${sentCount} clients`);
     }
+  }
+
+  private maybeLogWsMetrics(): void {
+    if (this.wsMetricsLogIntervalMs <= 0) {
+      return;
+    }
+    const now = Date.now();
+    const elapsedMs = now - this.wsMetricsWindowStartedAt;
+    if (elapsedMs < this.wsMetricsLogIntervalMs) {
+      return;
+    }
+
+    const elapsedSec = Math.max(1, elapsedMs / 1000);
+    const getStatsQps = this.wsMetrics.getStatsCalls / elapsedSec;
+    const subscribeQps = this.wsMetrics.subscribeTotal / elapsedSec;
+    const cacheTotal = this.wsMetrics.baseCacheHit + this.wsMetrics.baseCacheMiss;
+    const cacheHitRate = cacheTotal > 0
+      ? (this.wsMetrics.baseCacheHit / cacheTotal) * 100
+      : 0;
+
+    console.info(
+      `[WebSocket Metrics] subscribe_total=${this.wsMetrics.subscribeTotal} subscribe_changed=${this.wsMetrics.subscribeChanged} subscribe_noop=${this.wsMetrics.subscribeNoop} subscribe_qps=${subscribeQps.toFixed(2)} get_stats_calls=${this.wsMetrics.getStatsCalls} get_stats_qps=${getStatsQps.toFixed(2)} full_summary_calls=${this.wsMetrics.fullSummaryCalls} base_cache_hit=${this.wsMetrics.baseCacheHit} base_cache_miss=${this.wsMetrics.baseCacheMiss} base_cache_hit_rate=${cacheHitRate.toFixed(1)}% trend_calls=${this.wsMetrics.trendCalls} detail_calls=${this.wsMetrics.detailCalls} paged_calls=${this.wsMetrics.pagedCalls} broadcast_calls=${this.wsMetrics.broadcastCalls} broadcast_sent_clients=${this.wsMetrics.broadcastSentClients} window_sec=${elapsedSec.toFixed(1)}`,
+    );
+
+    this.wsMetricsWindowStartedAt = now;
+    this.wsMetrics = {
+      subscribeTotal: 0,
+      subscribeChanged: 0,
+      subscribeNoop: 0,
+      getStatsCalls: 0,
+      fullSummaryCalls: 0,
+      baseCacheHit: 0,
+      baseCacheMiss: 0,
+      trendCalls: 0,
+      detailCalls: 0,
+      pagedCalls: 0,
+      broadcastCalls: 0,
+      broadcastSentClients: 0,
+    };
   }
 
   getClientCount(): number {
