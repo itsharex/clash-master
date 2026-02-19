@@ -64,6 +64,17 @@ export class GeoIPService {
   private geoLookupConfigCache:
     | { value: GeoLookupConfig; checkedAt: number }
     | null = null;
+  private localMinRequestIntervalMs: number;
+  private enableCountryMmdbFallback: boolean;
+  private metricsLogIntervalMs: number;
+  private metricsWindowStartedAt: number = Date.now();
+  private metrics = {
+    geoLookupCount: 0,
+    localMmdbQueryCount: 0,
+    geoCacheHit: 0,
+    geoCacheMiss: 0,
+    geoDbReadCount: 0,
+  };
 
   private static FAIL_COOLDOWN_MS = 30 * 60 * 1000;
   private static MAX_QUEUE_SIZE = 100;
@@ -73,12 +84,29 @@ export class GeoIPService {
   private static GEO_CONFIG_CACHE_TTL_MS = 5000;
   private static MEMORY_GEO_CACHE_MAX_ENTRIES = 50000;
   private static COUNTRY_MMDB_FILE = "GeoLite2-Country.mmdb";
+  private static DEFAULT_LOCAL_MIN_REQUEST_INTERVAL_MS = 10;
+  private static DEFAULT_METRICS_LOG_INTERVAL_MS = 60 * 1000;
 
   constructor(db: StatsDatabase) {
     this.db = db;
+    this.localMinRequestIntervalMs = this.parseEnvMs(
+      process.env.GEOIP_LOCAL_MIN_REQUEST_INTERVAL_MS,
+      GeoIPService.DEFAULT_LOCAL_MIN_REQUEST_INTERVAL_MS,
+    );
+    this.enableCountryMmdbFallback = this.parseBooleanEnv(
+      process.env.GEOIP_ENABLE_COUNTRY_MMDB_FALLBACK,
+      false,
+    );
+    this.metricsLogIntervalMs = this.parseEnvMs(
+      process.env.GEOIP_METRICS_LOG_INTERVAL_MS,
+      GeoIPService.DEFAULT_METRICS_LOG_INTERVAL_MS,
+    );
   }
 
   async getGeoLocation(ip: string): Promise<GeoLocation | null> {
+    this.metrics.geoLookupCount += 1;
+    this.maybeLogMetrics();
+
     if (this.isPrivateIP(ip)) {
       return {
         country: "LOCAL",
@@ -94,13 +122,16 @@ export class GeoIPService {
 
     const memoryCached = this.memoryGeoCache.get(ip);
     if (memoryCached) {
+      this.metrics.geoCacheHit += 1;
       return memoryCached;
     }
 
+    this.metrics.geoDbReadCount += 1;
     const cached = this.db.getIPGeolocation(ip);
     if (cached) {
       // Cache hit should always win over previous transient failures.
       this.failedIPs.delete(ip);
+      this.metrics.geoCacheHit += 1;
       const geo = {
         country: cached.country,
         country_name: cached.country_name,
@@ -114,6 +145,8 @@ export class GeoIPService {
       this.setMemoryGeoCache(ip, geo);
       return geo;
     }
+
+    this.metrics.geoCacheMiss += 1;
 
     const failedAt = this.failedIPs.get(ip);
     if (failedAt && Date.now() - failedAt < GeoIPService.FAIL_COOLDOWN_MS) {
@@ -163,7 +196,9 @@ export class GeoIPService {
     try {
       const config = this.getGeoLookupConfig();
       const useLocal = config.provider === "local" && config.localMmdbReady !== false;
-      return useLocal ? 0 : GeoIPService.ONLINE_MIN_REQUEST_INTERVAL_MS;
+      return useLocal
+        ? this.localMinRequestIntervalMs
+        : GeoIPService.ONLINE_MIN_REQUEST_INTERVAL_MS;
     } catch {
       return GeoIPService.ONLINE_MIN_REQUEST_INTERVAL_MS;
     }
@@ -283,6 +318,8 @@ export class GeoIPService {
     ip: string,
     config: GeoLookupConfig,
   ): Promise<GeoLocation | null> {
+    this.metrics.localMmdbQueryCount += 1;
+
     if (!maxmind.validate(ip)) {
       this.failedIPs.set(ip, Date.now());
       return null;
@@ -409,7 +446,7 @@ export class GeoIPService {
 
     const cityMtimeMs = this.getFileMtimeMs(cityPath);
     const asnMtimeMs = this.getFileMtimeMs(asnPath);
-    const countryMtimeMs = fs.existsSync(countryPath)
+    const countryMtimeMs = this.enableCountryMmdbFallback && fs.existsSync(countryPath)
       ? this.getFileMtimeMs(countryPath)
       : null;
     if (cityMtimeMs === null || asnMtimeMs === null) {
@@ -449,6 +486,52 @@ export class GeoIPService {
     } catch {
       return null;
     }
+  }
+
+  private parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+    if (value === undefined) return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    return fallback;
+  }
+
+  private parseEnvMs(value: string | undefined, fallback: number): number {
+    if (!value) return fallback;
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+    return parsed;
+  }
+
+  private maybeLogMetrics(): void {
+    if (this.metricsLogIntervalMs <= 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - this.metricsWindowStartedAt;
+    if (elapsedMs < this.metricsLogIntervalMs) {
+      return;
+    }
+
+    const elapsedSec = Math.max(1, elapsedMs / 1000);
+    const qps = this.metrics.geoLookupCount / elapsedSec;
+    const cacheTotal = this.metrics.geoCacheHit + this.metrics.geoCacheMiss;
+    const cacheHitRate =
+      cacheTotal > 0 ? (this.metrics.geoCacheHit / cacheTotal) * 100 : 0;
+
+    console.info(
+      `[GeoIP Metrics] geo_lookup_qps=${qps.toFixed(2)} local_mmdb_query_count=${this.metrics.localMmdbQueryCount} geo_cache_hit=${this.metrics.geoCacheHit} geo_cache_miss=${this.metrics.geoCacheMiss} geo_cache_hit_rate=${cacheHitRate.toFixed(1)}% geo_db_read_count=${this.metrics.geoDbReadCount} window_sec=${elapsedSec.toFixed(1)}`,
+    );
+
+    this.metricsWindowStartedAt = now;
+    this.metrics = {
+      geoLookupCount: 0,
+      localMmdbQueryCount: 0,
+      geoCacheHit: 0,
+      geoCacheMiss: 0,
+      geoDbReadCount: 0,
+    };
   }
 
   private buildLookupUrl(baseUrl: string, ip: string): string {
@@ -547,15 +630,15 @@ export class GeoIPService {
     const uniqueIPs = [...new Set(ips)].filter((ip) => !this.isPrivateIP(ip));
     const config = this.getGeoLookupConfig();
     const useLocal = config.provider === "local" && config.localMmdbReady !== false;
-    const delayMs = useLocal ? 0 : 150;
+    const delayMs = useLocal ? this.localMinRequestIntervalMs : 150;
 
     for (const ip of uniqueIPs) {
-      const cached = this.db.getIPGeolocation(ip);
-      if (!cached) {
-        await this.getGeoLocation(ip);
-        if (delayMs > 0) {
-          await this.sleep(delayMs);
-        }
+      if (this.memoryGeoCache.has(ip)) {
+        continue;
+      }
+      await this.getGeoLocation(ip);
+      if (delayMs > 0) {
+        await this.sleep(delayMs);
       }
     }
   }
